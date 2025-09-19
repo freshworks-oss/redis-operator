@@ -1,7 +1,7 @@
 # redis-operator
 
-[![Build Status](https://github.com/spotahome/redis-operator/actions/workflows/ci.yaml/badge.svg?branch=master)](https://github.com/spotahome/redis-operator)
-[![Go Report Card](https://goreportcard.com/badge/github.com/spotahome/redis-operator)](https://goreportcard.com/report/github.com/spotahome/redis-operator)
+[![Build Status](https://github.com/freshworks/redis-operator/actions/workflows/ci.yaml/badge.svg?branch=master)](https://github.com/freshworks/redis-operator)
+[![Go Report Card](https://goreportcard.com/badge/github.com/freshworks/redis-operator)](https://goreportcard.com/report/github.com/freshworks/redis-operator)
 
 Redis Operator creates/configures/manages redis-failovers atop Kubernetes.
 
@@ -34,7 +34,7 @@ Helm chart only manage the creation of CRD in the first install. In order to upd
 
 ```
 REDIS_OPERATOR_VERSION=v1.3.0
-kubectl replace -f https://raw.githubusercontent.com/spotahome/redis-operator/${REDIS_OPERATOR_VERSION}/manifests/databases.spotahome.com_redisfailovers.yaml
+kubectl replace -f https://raw.githubusercontent.com/freshworks/redis-operator/${REDIS_OPERATOR_VERSION}/manifests/databases.spotahome.com_redisfailovers.yaml
 ```
 
 ```
@@ -46,8 +46,8 @@ To create the operator, you can directly create it with kubectl:
 
 ```
 REDIS_OPERATOR_VERSION=v1.3.0
-kubectl create -f https://raw.githubusercontent.com/spotahome/redis-operator/${REDIS_OPERATOR_VERSION}/manifests/databases.spotahome.com_redisfailovers.yaml
-kubectl apply -f https://raw.githubusercontent.com/spotahome/redis-operator/${REDIS_OPERATOR_VERSION}/example/operator/all-redis-operator-resources.yaml
+kubectl create -f https://raw.githubusercontent.com/freshworks/redis-operator/${REDIS_OPERATOR_VERSION}/manifests/databases.spotahome.com_redisfailovers.yaml
+kubectl apply -f https://raw.githubusercontent.com/freshworks/redis-operator/${REDIS_OPERATOR_VERSION}/example/operator/all-redis-operator-resources.yaml
 ```
 
 This will create a deployment named `redisoperator`.
@@ -60,7 +60,7 @@ but it also comes with a few presets (in the form of overlays) supporting the mo
 To install the operator with default settings and every necessary resource (including RBAC, service account, default resource limits, etc), install the `default` overlay:
 
 ```shell
-kustomize build github.com/spotahome/redis-operator/manifests/kustomize/overlays/default
+kustomize build github.com/freshworks/redis-operator/manifests/kustomize/overlays/default
 ```
 
 If you would like to customize RBAC or the service account used, you can install the `minimal` overlay.
@@ -70,7 +70,7 @@ Finally, you can install the `full` overlay if you want everything this operator
 It's always a good practice to pin the version of the operator in your configuration to make sure you are not surprised by changes on the latest development branch:
 
 ```shell
-kustomize build github.com/spotahome/redis-operator/manifests/kustomize/overlays/default?ref=v1.2.4
+kustomize build github.com/freshworks/redis-operator/manifests/kustomize/overlays/default?ref=v1.2.4
 ```
 
 You can easily create your own config by creating a `kustomization.yaml` file
@@ -86,7 +86,7 @@ commonLabels:
     foo: bar
 
 resources:
-  - github.com/spotahome/redis-operator/manifests/kustomize/overlays/full
+  - github.com/freshworks/redis-operator/manifests/kustomize/overlays/full
 ```
 
 Take a look at the manifests inside [manifests/kustomize](manifests/kustomize) for more details.
@@ -143,6 +143,26 @@ In order to have the ability of this configurations to be changed "on the fly", 
 
 **Important 2**: do **NOT** change the options used for control the redis/sentinel such as `port`, `bind`, `dir`, etc.
 
+### Skip Reconcile
+
+The operator provides a `redis-failover.freshworks.com/skip-reconcile` annotation that allows you to temporarily pause reconciliation of a RedisFailover resource. When this annotation is set to `"true"`, the operator will skip all reconciliation logic for that specific RedisFailover, meaning any changes made to the resource specification will not be applied to the underlying Kubernetes resources.
+
+This feature is useful for:
+- **Maintenance operations**: Temporarily prevent the operator from making changes while performing manual maintenance
+- **Debugging**: Freeze the current state while investigating issues
+- **Staged deployments**: Control when changes are applied to your Redis infrastructure
+
+#### Usage
+
+Add the `redis-failover.freshworks.com/skip-reconcile: "true"` annotation to your RedisFailover resource to pause reconciliation. To resume, remove the annotation or set it to any other value.
+
+**Important**: While `redis-failover.freshworks.com/skip-reconcile` is active, the operator will not:
+- Apply spec changes to StatefulSets, Deployments, ConfigMaps, or Services
+- Perform health checks or healing operations
+- Update resource configurations
+
+The operator will still log that it's skipping reconciliation for the resource, so you can verify the feature is working as expected.
+
 ### Custom shutdown script
 
 By default, a custom shutdown file is given. This file makes redis to `SAVE` it's data, and in the case that redis is master, it'll call sentinel to ask for a failover.
@@ -191,7 +211,7 @@ In order to apply custom service Annotations, you can provide the `serviceAnnota
 
 By default the sentinel identifies the cluster with `mymaster`, due to the ephemeral nature of Kubernetes. There is a high likelihood of the colliding the sentinel across redisfailover deployments. To avoid this we can set the `disableMyMaster` to `false` under the `sentinel` specification.
 
-```
+```yaml
 apiVersion: databases.spotahome.com/v1
 kind: RedisFailover
 metadata:
@@ -240,6 +260,38 @@ app.kubernetes.io/name
 app.kubernetes.io/part-of
 redisfailovers.databases.spotahome.com/name
 ```
+
+### Prevent Master Eviction
+
+The `preventMasterEviction` feature allows you to control whether Redis pods can be evicted by the Kubernetes cluster autoscaler. When enabled, it adds cluster autoscaler annotations to Redis pods to prevent the master from being evicted while allowing slaves to be evicted safely.
+
+This is particularly useful in environments where:
+- You want to prevent disruption to the Redis master during cluster scaling operations
+- You need to ensure high availability by protecting the master from involuntary eviction
+- You want slaves to be evictable for efficient resource utilization
+
+When `preventMasterEviction` is set to `true`:
+- Master pods get the annotation: `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"`
+- Slave pods get the annotation: `cluster-autoscaler.kubernetes.io/safe-to-evict: "true"`
+
+When `preventMasterEviction` is set to `false` (default) or omitted, no cluster autoscaler annotations are added to the pods.
+
+Example configuration:
+
+```yaml
+apiVersion: databases.spotahome.com/v1
+kind: RedisFailover
+metadata:
+  name: example-redisfailover
+spec:
+  sentinel:
+    replicas: 3
+  redis:
+    replicas: 3
+    preventMasterEviction: true
+```
+
+**Note**: The operator will automatically manage these annotations during reconciliation. When you disable `preventMasterEviction`, the annotations will be removed from existing pods.
 
 
 ### ExtraVolumes and ExtraVolumeMounts
@@ -380,9 +432,9 @@ kubectl delete redisfailover <NAME>
 
 ### Redis Operator
 
-[![Redis Operator Image](https://quay.io/repository/spotahome/redis-operator/status "Redis Operator Image")](https://quay.io/repository/spotahome/redis-operator)
+[![Redis Operator Image](https://ghcr.io/freshworks/redis-operator/status "Redis Operator Image")](https://ghcr.io/freshworks/redis-operator)
 ## Documentation
 
-For the code documentation, you can lookup on the [GoDoc](https://godoc.org/github.com/spotahome/redis-operator).
+For the code documentation, you can lookup on the [GoDoc](https://godoc.org/github.com/freshworks/redis-operator).
 
 Also, you can check more deeply information on the [docs folder](docs).

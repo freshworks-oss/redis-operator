@@ -8,12 +8,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	redisfailoverv1 "github.com/spotahome/redis-operator/api/redisfailover/v1"
-	"github.com/spotahome/redis-operator/log"
-	"github.com/spotahome/redis-operator/metrics"
-	rfservice "github.com/spotahome/redis-operator/operator/redisfailover/service"
-	"github.com/spotahome/redis-operator/operator/redisfailover/util"
-	"github.com/spotahome/redis-operator/service/k8s"
+	redisfailoverv1 "github.com/freshworks/redis-operator/api/redisfailover/v1"
+	"github.com/freshworks/redis-operator/log"
+	"github.com/freshworks/redis-operator/metrics"
+	rfservice "github.com/freshworks/redis-operator/operator/redisfailover/service"
+	"github.com/freshworks/redis-operator/operator/redisfailover/util"
+	"github.com/freshworks/redis-operator/service/k8s"
 )
 
 const (
@@ -57,6 +57,14 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 	rf, ok := obj.(*redisfailoverv1.RedisFailover)
 	if !ok {
 		return fmt.Errorf("can't handle the received object: not a redisfailover")
+	}
+
+	if rf.Annotations != nil {
+		skipReconcile, ok := rf.Annotations["redis-failover.freshworks.com/skip-reconcile"]
+		if ok && skipReconcile == "true" {
+			r.logger.Infoln("redis-failover.freshworks.com/skip-reconcile set to true. Skipping reconcile for", rf.Name)
+			return nil
+		}
 	}
 
 	if err := rf.Validate(); err != nil {
