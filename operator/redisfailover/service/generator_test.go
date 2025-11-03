@@ -1807,7 +1807,7 @@ func TestRedisHostNetworkAndDnsPolicy(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything, mock.Anything).Once().Run(func(args mock.Arguments) {
 			ss := args.Get(1).(*appsv1.StatefulSet)
 			actualHostNetwork = ss.Spec.Template.Spec.HostNetwork
 			actualDnsPolicy = ss.Spec.Template.Spec.DNSPolicy
@@ -1906,7 +1906,7 @@ func TestRedisImagePullPolicy(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything, mock.Anything).Once().Run(func(args mock.Arguments) {
 			ss := args.Get(1).(*appsv1.StatefulSet)
 			policy = ss.Spec.Template.Spec.Containers[0].ImagePullPolicy
 			exporterPolicy = ss.Spec.Template.Spec.Containers[1].ImagePullPolicy
@@ -2027,7 +2027,7 @@ func TestRedisExtraVolumeMounts(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			extraVolume = s.Spec.Template.Spec.Volumes[3]
 			extraVolumeMount = s.Spec.Template.Spec.Containers[0].VolumeMounts[4]
@@ -2159,7 +2159,7 @@ func TestCustomPort(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			port = s.Spec.Template.Spec.Containers[0].Ports[0]
 		}).Return(nil)
@@ -2241,7 +2241,7 @@ func TestRedisEnv(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			env = s.Spec.Template.Spec.Containers[0].Env
 		}).Return(nil)
@@ -2292,7 +2292,7 @@ func TestRedisStartupProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			startupVolumes = s.Spec.Template.Spec.Volumes
 			startupVolumeMounts = s.Spec.Template.Spec.Containers[0].VolumeMounts
@@ -2429,7 +2429,7 @@ func TestRedisCustomLivenessProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			livenessProbe = s.Spec.Template.Spec.Containers[0].LivenessProbe
 		}).Return(nil)
@@ -2575,7 +2575,7 @@ func TestRedisCustomReadinessProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			readinessProbe = s.Spec.Template.Spec.Containers[0].ReadinessProbe
 		}).Return(nil)
@@ -2713,7 +2713,7 @@ func TestRedisCustomStartupProbe(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything, mock.Anything).Once().Run(func(args mock.Arguments) {
 			s := args.Get(1).(*appsv1.StatefulSet)
 			startupProbe = s.Spec.Template.Spec.Containers[0].StartupProbe
 		}).Return(nil)
