@@ -102,9 +102,10 @@ func TestValidate(t *testing.T) {
 					},
 					Spec: RedisFailoverSpec{
 						Redis: RedisSettings{
-							Image:    defaultImage,
-							Replicas: defaultRedisNumber,
-							Port:     defaultRedisPort,
+							Image:           defaultImage,
+							Replicas:        defaultRedisNumber,
+							Port:            defaultRedisPort,
+							MemoryThreshold: defaultMemoryThreshold,
 							Exporter: Exporter{
 								Image: defaultExporterImage,
 							},

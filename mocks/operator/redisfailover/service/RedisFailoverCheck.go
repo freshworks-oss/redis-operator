@@ -107,6 +107,34 @@ func (_m *RedisFailoverCheck) CheckRedisSlavesReady(slaveIP string, rFailover *v
 	return r0, r1
 }
 
+// GetRedisPodMemoryUsage provides a mock function with given fields: redisIP, rFailover
+func (_m *RedisFailoverCheck) GetRedisPodMemoryUsage(redisIP string, rFailover *v1.RedisFailover) (int64, error) {
+	ret := _m.Called(redisIP, rFailover)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRedisPodMemoryUsage")
+	}
+
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string, *v1.RedisFailover) (int64, error)); ok {
+		return rf(redisIP, rFailover)
+	}
+	if rf, ok := ret.Get(0).(func(string, *v1.RedisFailover) int64); ok {
+		r0 = rf(redisIP, rFailover)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	if rf, ok := ret.Get(1).(func(string, *v1.RedisFailover) error); ok {
+		r1 = rf(redisIP, rFailover)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // CheckSentinelMonitor provides a mock function with given fields: sentinel, masterName, monitor
 func (_m *RedisFailoverCheck) CheckSentinelMonitor(sentinel string, masterName string, monitor ...string) error {
 	_va := make([]interface{}, len(monitor))

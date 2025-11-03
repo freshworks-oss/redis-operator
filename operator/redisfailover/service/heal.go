@@ -2,8 +2,10 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	redisfailoverv1 "github.com/freshworks/redis-operator/api/redisfailover/v1"
 	"github.com/freshworks/redis-operator/log"
@@ -22,7 +24,7 @@ type RedisFailoverHeal interface {
 	NewSentinelMonitorWithPort(ip string, monitor string, port string, rFailover *redisfailoverv1.RedisFailover) error
 	RestoreSentinel(ip string) error
 	SetSentinelCustomConfig(ip string, rFailover *redisfailoverv1.RedisFailover) error
-	SetRedisCustomConfig(ip string, rFailover *redisfailoverv1.RedisFailover) error
+	SetRedisCustomConfig(ip string, podMemory int64, rFailover *redisfailoverv1.RedisFailover) error
 	DeletePod(podName string, rFailover *redisfailoverv1.RedisFailover) error
 }
 
@@ -305,7 +307,7 @@ func (r *RedisFailoverHealer) SetSentinelCustomConfig(ip string, rf *redisfailov
 }
 
 // SetRedisCustomConfig will call redis to set the configuration given in config
-func (r *RedisFailoverHealer) SetRedisCustomConfig(ip string, rf *redisfailoverv1.RedisFailover) error {
+func (r *RedisFailoverHealer) SetRedisCustomConfig(ip string, podMemory int64, rf *redisfailoverv1.RedisFailover) error {
 	r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Debugf("Setting the custom config on redis %s...", ip)
 
 	password, err := k8s.GetRedisPassword(r.k8sService, rf)
@@ -313,8 +315,103 @@ func (r *RedisFailoverHealer) SetRedisCustomConfig(ip string, rf *redisfailoverv
 		return err
 	}
 
+	// Validate and filter maxmemory configuration
+	validatedConfig, err := r.validateMaxMemoryConfig(rf.Spec.Redis.CustomConfig, podMemory, ip, rf)
+	if err != nil {
+		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("maxmemory validation failed for Redis IP %s: %v", ip, err)
+	}
+
 	port := getRedisPort(rf.Spec.Redis.Port)
-	return r.redisClient.SetCustomRedisConfig(ip, port, rf.Spec.Redis.CustomConfig, password)
+	return r.redisClient.SetCustomRedisConfig(ip, port, validatedConfig, password)
+}
+
+// validateMaxMemoryConfig validates maxmemory configuration against pod memory using percentage-based threshold
+func (r *RedisFailoverHealer) validateMaxMemoryConfig(customConfig []string, podMemory int64, ip string, rf *redisfailoverv1.RedisFailover) ([]string, error) {
+	validatedConfig := make([]string, 0, len(customConfig))
+
+	// Get the memory threshold percentage (default is 10%)
+	thresholdPercent := rf.Spec.Redis.MemoryThreshold
+	if thresholdPercent <= 0 {
+		thresholdPercent = 10 // fallback to default if not set properly
+	}
+
+	for _, configLine := range customConfig {
+		// Check if this is a maxmemory configuration line (not maxmemory-policy or other maxmemory-* directives)
+		if strings.HasPrefix(configLine, "maxmemory ") {
+			// Parse maxmemory value
+			parts := strings.Fields(configLine)
+			if len(parts) >= 2 {
+				maxMemoryStr := parts[1]
+				maxMemoryBytes, err := parseMemorySize(maxMemoryStr)
+				if err != nil {
+					r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Failed to parse maxmemory value '%s' for Redis IP %s: %v", maxMemoryStr, ip, err)
+					return nil, fmt.Errorf("invalid maxmemory configuration '%s': %w", configLine, err)
+				}
+
+				// Calculate allowed memory: pod memory * (100 - threshold) / 100
+				// For example: if threshold is 10%, then allowed memory is 90% of pod memory
+				if podMemory > 0 {
+					allowedMemory := podMemory * int64(100-thresholdPercent) / 100
+					if maxMemoryBytes > allowedMemory {
+						r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("maxmemory configuration %d bytes exceeds allowed limit %d bytes (%d%% of pod memory %d bytes, threshold: %d%%) for Redis IP %s", maxMemoryBytes, allowedMemory, 100-thresholdPercent, podMemory, thresholdPercent, ip)
+						return nil, fmt.Errorf("maxmemory %d bytes exceeds allowed limit %d bytes (%d%% of pod memory %d bytes, threshold: %d%%)", maxMemoryBytes, allowedMemory, 100-thresholdPercent, podMemory, thresholdPercent)
+					}
+
+				}
+			}
+		}
+
+		// Add all configurations (including validated maxmemory) to the final config
+		validatedConfig = append(validatedConfig, configLine)
+	}
+
+	return validatedConfig, nil
+}
+
+// parseMemorySize parses Redis memory size strings (e.g., "1gb", "512mb", "1024")
+func parseMemorySize(sizeStr string) (int64, error) {
+	sizeStr = strings.ToLower(strings.TrimSpace(sizeStr))
+
+	// Handle plain numbers (bytes)
+	if val, err := strconv.ParseInt(sizeStr, 10, 64); err == nil {
+		return val, nil
+	}
+
+	// Handle suffixed values
+	var multiplier int64 = 1
+	var numStr string
+
+	if strings.HasSuffix(sizeStr, "gb") || strings.HasSuffix(sizeStr, "g") {
+		multiplier = 1024 * 1024 * 1024
+		if strings.HasSuffix(sizeStr, "gb") {
+			numStr = sizeStr[:len(sizeStr)-2]
+		} else {
+			numStr = sizeStr[:len(sizeStr)-1]
+		}
+	} else if strings.HasSuffix(sizeStr, "mb") || strings.HasSuffix(sizeStr, "m") {
+		multiplier = 1024 * 1024
+		if strings.HasSuffix(sizeStr, "mb") {
+			numStr = sizeStr[:len(sizeStr)-2]
+		} else {
+			numStr = sizeStr[:len(sizeStr)-1]
+		}
+	} else if strings.HasSuffix(sizeStr, "kb") || strings.HasSuffix(sizeStr, "k") {
+		multiplier = 1024
+		if strings.HasSuffix(sizeStr, "kb") {
+			numStr = sizeStr[:len(sizeStr)-2]
+		} else {
+			numStr = sizeStr[:len(sizeStr)-1]
+		}
+	} else {
+		return 0, fmt.Errorf("unsupported memory size format: %s", sizeStr)
+	}
+
+	val, err := strconv.ParseFloat(numStr, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid numeric value in memory size: %s", sizeStr)
+	}
+
+	return int64(val * float64(multiplier)), nil
 }
 
 // DeletePod delete a failing pod so kubernetes relaunch it again

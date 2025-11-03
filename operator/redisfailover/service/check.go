@@ -37,6 +37,7 @@ type RedisFailoverCheck interface {
 	GetStatefulSetUpdateRevision(rFailover *redisfailoverv1.RedisFailover) (string, error)
 	GetRedisRevisionHash(podName string, rFailover *redisfailoverv1.RedisFailover) (string, error)
 	CheckRedisSlavesReady(slaveIP string, rFailover *redisfailoverv1.RedisFailover) (bool, error)
+	GetRedisPodMemoryUsage(redisIP string, rFailover *redisfailoverv1.RedisFailover) (int64, error)
 	IsRedisRunning(rFailover *redisfailoverv1.RedisFailover) bool
 	IsSentinelRunning(rFailover *redisfailoverv1.RedisFailover) bool
 	IsClusterRunning(rFailover *redisfailoverv1.RedisFailover) bool
@@ -521,6 +522,58 @@ func (r *RedisFailoverChecker) CheckRedisSlavesReady(ip string, rFailover *redis
 
 	port := getRedisPort(rFailover.Spec.Redis.Port)
 	return r.redisClient.SlaveIsReady(ip, port, password)
+}
+
+// GetRedisPodMemoryUsage returns the memory usage of the Redis pod with the given IP
+func (r *RedisFailoverChecker) GetRedisPodMemoryUsage(redisIP string, rFailover *redisfailoverv1.RedisFailover) (int64, error) {
+	// Get all Redis pods
+	rps, err := r.k8sService.GetStatefulSetPods(rFailover.Namespace, GetRedisName(rFailover))
+	if err != nil {
+		return 0, fmt.Errorf("failed to get Redis pods: %w", err)
+	}
+
+	// Find the pod with the matching IP
+	var targetPod *corev1.Pod
+	for _, pod := range rps.Items {
+		if pod.Status.PodIP == redisIP {
+			targetPod = &pod
+			break
+		}
+	}
+
+	if targetPod == nil {
+		return 0, fmt.Errorf("no pod found with IP %s", redisIP)
+	}
+
+	// Check if the pod is running
+	if targetPod.Status.Phase != corev1.PodRunning {
+		return 0, fmt.Errorf("pod %s is not running, current phase: %s", targetPod.Name, targetPod.Status.Phase)
+	}
+
+	// Get memory usage from pod status
+	// Note: This returns the memory limit if set, or 0 if no limit is configured
+	var memoryUsage int64
+
+	// Check if there are resource requests/limits set
+	for _, container := range targetPod.Spec.Containers {
+		if container.Name == "redis" { // Assuming the Redis container is named "redis"
+			if memLimit := container.Resources.Limits.Memory(); memLimit != nil {
+				memoryUsage = memLimit.Value()
+				r.logger.Debugf("Found memory limit for pod %s: %d bytes", targetPod.Name, memoryUsage)
+				return memoryUsage, nil
+			}
+			if memRequest := container.Resources.Requests.Memory(); memRequest != nil {
+				memoryUsage = memRequest.Value()
+				r.logger.Debugf("Found memory request for pod %s: %d bytes", targetPod.Name, memoryUsage)
+				return memoryUsage, nil
+			}
+		}
+	}
+
+	// If no resource limits/requests are set, we can't determine memory usage from the pod spec
+	// In a real implementation, you might want to use metrics-server or custom metrics
+	r.logger.Warningf("No memory limits or requests found for Redis pod %s with IP %s", targetPod.Name, redisIP)
+	return 0, fmt.Errorf("no memory configuration found for pod %s", targetPod.Name)
 }
 
 // IsRedisRunning returns true if all the pods are Running

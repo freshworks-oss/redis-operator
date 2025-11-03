@@ -157,17 +157,17 @@ func (_m *RedisFailoverHeal) SetOldestAsMaster(rFailover *v1.RedisFailover) erro
 	return r0
 }
 
-// SetRedisCustomConfig provides a mock function with given fields: ip, rFailover
-func (_m *RedisFailoverHeal) SetRedisCustomConfig(ip string, rFailover *v1.RedisFailover) error {
-	ret := _m.Called(ip, rFailover)
+// SetRedisCustomConfig provides a mock function with given fields: ip, podMemory, rFailover
+func (_m *RedisFailoverHeal) SetRedisCustomConfig(ip string, podMemory int64, rFailover *v1.RedisFailover) error {
+	ret := _m.Called(ip, podMemory, rFailover)
 
 	if len(ret) == 0 {
 		panic("no return value specified for SetRedisCustomConfig")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(string, *v1.RedisFailover) error); ok {
-		r0 = rf(ip, rFailover)
+	if rf, ok := ret.Get(0).(func(string, int64, *v1.RedisFailover) error); ok {
+		r0 = rf(ip, podMemory, rFailover)
 	} else {
 		r0 = ret.Error(0)
 	}
