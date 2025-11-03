@@ -18,6 +18,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	apiextensionsclientset "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
@@ -190,6 +192,11 @@ func TestRedisFailover(t *testing.T) {
 	// Check that preventMasterEviction annotations are correctly set
 	t.Run("Check PreventMasterEviction annotations", func(t *testing.T) {
 		clients.testPreventMasterEviction(t, currentNamespace)
+	})
+
+	// Check that maxmemory validation prevents StatefulSet creation when maxmemory exceeds pod memory
+	t.Run("Check MaxMemory Validation Error", func(t *testing.T) {
+		clients.testMaxMemoryValidationError(t, currentNamespace)
 	})
 }
 
@@ -599,4 +606,54 @@ func (c *clients) getRedisReplicas(name string, currentNamespace string) (int32,
 		return 0, err
 	}
 	return *redisSS.Spec.Replicas, nil
+}
+func (c *clients) testMaxMemoryValidationError(t *testing.T, currentNamespace string) {
+	assert := assert.New(t)
+	require := require.New(t)
+
+	// Create a RedisFailover with maxmemory > pod memory to trigger validation error
+	rfName := "maxmemory-test"
+	toCreate := &redisfailoverv1.RedisFailover{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      rfName,
+			Namespace: currentNamespace,
+		},
+		Spec: redisfailoverv1.RedisFailoverSpec{
+			Redis: redisfailoverv1.RedisSettings{
+				Replicas: 1,
+				Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{
+						corev1.ResourceMemory: resource.MustParse("100Mi"), // Pod memory limit: 100Mi
+					},
+				},
+				CustomConfig: []string{
+					"maxmemory 200mb", // maxmemory > pod memory, should fail validation
+				},
+				Exporter: redisfailoverv1.Exporter{
+					Enabled: true,
+				},
+			},
+			Sentinel: redisfailoverv1.SentinelSettings{
+				Replicas: 1,
+			},
+			Auth: redisfailoverv1.AuthSettings{
+				SecretPath: authSecretPath,
+			},
+		},
+	}
+
+	// Create the RedisFailover CRD
+	_, err := c.rfClient.DatabasesV1().RedisFailovers(currentNamespace).Create(context.Background(), toCreate, metav1.CreateOptions{})
+	require.NoError(err)
+
+	// Wait for the operator to attempt processing
+	time.Sleep(30 * time.Second)
+
+	// Check that the StatefulSet was NOT created due to validation error
+	_, err = c.k8sClient.AppsV1().StatefulSets(currentNamespace).Get(context.Background(), fmt.Sprintf("rfr-%s", rfName), metav1.GetOptions{})
+	assert.True(errors.IsNotFound(err), "StatefulSet should not be created when maxmemory validation fails")
+
+	// Cleanup: Delete the RedisFailover
+	err = c.rfClient.DatabasesV1().RedisFailovers(currentNamespace).Delete(context.Background(), rfName, metav1.DeleteOptions{})
+	require.NoError(err)
 }
