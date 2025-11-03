@@ -550,8 +550,8 @@ func (r *RedisFailoverChecker) GetRedisPodMemoryUsage(redisIP string, rFailover 
 		return 0, fmt.Errorf("pod %s is not running, current phase: %s", targetPod.Name, targetPod.Status.Phase)
 	}
 
-	// Get memory usage from pod status
-	// Note: This returns the memory limit if set, or 0 if no limit is configured
+	// Get configured memory limit or request from pod spec
+	// Note: This does NOT return actual memory usage; it returns the memory limit if set, or the memory request if set, or 0 if neither is configured
 	var memoryUsage int64
 
 	// Check if there are resource requests/limits set

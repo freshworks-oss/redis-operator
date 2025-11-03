@@ -43,7 +43,7 @@ type RedisSettings struct {
 	Port                          int32                             `json:"port,omitempty"`
 	Resources                     corev1.ResourceRequirements       `json:"resources,omitempty"`
 	CustomConfig                  []string                          `json:"customConfig,omitempty"`
-	MemoryThreshold               int32                             `json:"memoryThreshold,omitempty"`
+	MemoryOverheadPercentage      int32                             `json:"memoryOverheadPercentage,omitempty"`
 	CustomCommandRenames          []RedisCommandRename              `json:"customCommandRenames,omitempty"`
 	Command                       []string                          `json:"command,omitempty"`
 	ShutdownConfigMap             string                            `json:"shutdownConfigMap,omitempty"`

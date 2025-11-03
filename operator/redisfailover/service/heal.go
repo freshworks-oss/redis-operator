@@ -330,10 +330,10 @@ func (r *RedisFailoverHealer) validateMaxMemoryConfig(customConfig []string, pod
 	validatedConfig := make([]string, 0, len(customConfig))
 	var validationError error
 
-	// Get the memory threshold percentage (default is 10%)
-	thresholdPercent := rf.Spec.Redis.MemoryThreshold
-	if thresholdPercent <= 0 {
-		thresholdPercent = 10 // fallback to default if not set properly
+	// Get the memory overhead percentage (default is 10%)
+	overheadPercent := rf.Spec.Redis.MemoryOverheadPercentage
+	if overheadPercent <= 0 {
+		overheadPercent = 10 // fallback to default if not set properly
 	}
 
 	for _, configLine := range customConfig {
@@ -351,12 +351,12 @@ func (r *RedisFailoverHealer) validateMaxMemoryConfig(customConfig []string, pod
 				}
 
 				// Calculate allowed memory: pod memory * (100 - threshold) / 100
-				// For example: if threshold is 10%, then allowed memory is 90% of pod memory
+				// For example: if overhead is 10%, then allowed memory is 90% of pod memory
 				if podMemory > 0 {
-					allowedMemory := podMemory * int64(100-thresholdPercent) / 100
+					allowedMemory := podMemory * int64(100-overheadPercent) / 100
 					if maxMemoryBytes > allowedMemory {
-						r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("maxmemory configuration %d bytes exceeds allowed limit %d bytes (%d%% of pod memory %d bytes, threshold: %d%%) for Redis IP %s, skipping this config line", maxMemoryBytes, allowedMemory, 100-thresholdPercent, podMemory, thresholdPercent, ip)
-						validationError = fmt.Errorf("maxmemory %d bytes exceeds allowed limit %d bytes (%d%% of pod memory %d bytes, threshold: %d%%)", maxMemoryBytes, allowedMemory, 100-thresholdPercent, podMemory, thresholdPercent)
+						r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("maxmemory configuration %d bytes exceeds allowed limit %d bytes (%d%% of pod memory %d bytes, overhead: %d%%) for Redis IP %s, skipping this config line", maxMemoryBytes, allowedMemory, 100-overheadPercent, podMemory, overheadPercent, ip)
+						validationError = fmt.Errorf("maxmemory %d bytes exceeds allowed limit %d bytes (%d%% of pod memory %d bytes, overhead: %d%%)", maxMemoryBytes, allowedMemory, 100-overheadPercent, podMemory, overheadPercent)
 						continue // Skip this invalid maxmemory line but continue with others
 					}
 				}

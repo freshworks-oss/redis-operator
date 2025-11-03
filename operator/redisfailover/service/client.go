@@ -149,10 +149,10 @@ func (r *RedisFailoverKubeClient) validateMaxMemoryConfig(rf *redisfailoverv1.Re
 		return true
 	}
 
-	// Get the memory threshold percentage (default is 10%)
-	thresholdPercent := rf.Spec.Redis.MemoryThreshold
-	if thresholdPercent <= 0 {
-		thresholdPercent = 10 // Default threshold
+	// Get the memory overhead percentage (default is 10%)
+	overheadPercent := rf.Spec.Redis.MemoryOverheadPercentage
+	if overheadPercent <= 0 {
+		overheadPercent = 10 // Default overhead
 	}
 
 	// Check each custom config line for maxmemory
@@ -168,10 +168,10 @@ func (r *RedisFailoverKubeClient) validateMaxMemoryConfig(rf *redisfailoverv1.Re
 					return false
 				}
 
-				// Calculate allowed memory: CRD memory * (100 - threshold) / 100
-				allowedMemory := crdMemory * int64(100-thresholdPercent) / 100
+				// Calculate allowed memory: CRD memory * (100 - overhead) / 100
+				allowedMemory := crdMemory * int64(100-overheadPercent) / 100
 				if maxMemoryBytes > allowedMemory {
-					// maxmemory exceeds threshold, reject
+					// maxmemory exceeds overhead limit, reject
 					return false
 				}
 			}

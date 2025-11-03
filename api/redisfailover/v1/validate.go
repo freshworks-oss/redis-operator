@@ -45,8 +45,8 @@ func (r *RedisFailover) Validate() error {
 		r.Spec.Redis.Port = defaultRedisPort
 	}
 
-	if r.Spec.Redis.MemoryThreshold <= 0 {
-		r.Spec.Redis.MemoryThreshold = defaultMemoryThreshold
+	if r.Spec.Redis.MemoryOverheadPercentage <= 0 {
+		r.Spec.Redis.MemoryOverheadPercentage = defaultMemoryOverhead
 	}
 
 	if r.Spec.Sentinel.Replicas <= 0 {
