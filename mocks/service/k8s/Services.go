@@ -207,9 +207,9 @@ func (_m *Services) CreateOrUpdateService(namespace string, service *v1.Service)
 	return r0
 }
 
-// CreateOrUpdateStatefulSet provides a mock function with given fields: namespace, statefulSet
-func (_m *Services) CreateOrUpdateStatefulSet(namespace string, statefulSet *appsv1.StatefulSet) error {
-	ret := _m.Called(namespace, statefulSet)
+// CreateOrUpdateStatefulSet provides a mock function with given fields: namespace, statefulSet, isValidConfig
+func (_m *Services) CreateOrUpdateStatefulSet(namespace string, statefulSet *appsv1.StatefulSet, isValidConfig bool) error {
+	ret := _m.Called(namespace, statefulSet, isValidConfig)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CreateOrUpdateStatefulSet")

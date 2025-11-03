@@ -1,6 +1,8 @@
 package service
 
 import (
+	"strings"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
@@ -116,11 +118,67 @@ func (r *RedisFailoverKubeClient) EnsureRedisStatefulset(rf *redisfailoverv1.Red
 			return err
 		}
 	}
+	// Validate maxmemory configuration against CRD spec before creating StatefulSet
+	isValidConfig := r.validateMaxMemoryConfig(rf)
+
 	ss := generateRedisStatefulSet(rf, labels, ownerRefs)
-	err := r.K8SService.CreateOrUpdateStatefulSet(rf.Namespace, ss)
+	err := r.K8SService.CreateOrUpdateStatefulSet(rf.Namespace, ss, isValidConfig)
 
 	r.setEnsureOperationMetrics(ss.Namespace, ss.Name, "StatefulSet", rf.Name, err)
 	return err
+}
+
+// validateMaxMemoryConfig validates maxmemory configuration against CRD spec memory
+func (r *RedisFailoverKubeClient) validateMaxMemoryConfig(rf *redisfailoverv1.RedisFailover) bool {
+	// Get memory from CRD spec
+	var crdMemory int64
+	if rf.Spec.Redis.Resources.Limits != nil {
+		if memLimit := rf.Spec.Redis.Resources.Limits.Memory(); memLimit != nil {
+			crdMemory = memLimit.Value()
+		}
+	}
+
+	if crdMemory == 0 && rf.Spec.Redis.Resources.Requests != nil {
+		if memRequest := rf.Spec.Redis.Resources.Requests.Memory(); memRequest != nil {
+			crdMemory = memRequest.Value()
+		}
+	}
+
+	// If no memory limits/requests specified, allow creation
+	if crdMemory == 0 {
+		return true
+	}
+
+	// Get the memory threshold percentage (default is 10%)
+	thresholdPercent := rf.Spec.Redis.MemoryThreshold
+	if thresholdPercent <= 0 {
+		thresholdPercent = 10 // Default threshold
+	}
+
+	// Check each custom config line for maxmemory
+	for _, configLine := range rf.Spec.Redis.CustomConfig {
+		if strings.HasPrefix(configLine, "maxmemory ") {
+			// Parse maxmemory value
+			parts := strings.Fields(configLine)
+			if len(parts) >= 2 {
+				maxMemoryStr := parts[1]
+				maxMemoryBytes, err := ParseMemorySize(maxMemoryStr)
+				if err != nil {
+					// Invalid memory format, reject
+					return false
+				}
+
+				// Calculate allowed memory: CRD memory * (100 - threshold) / 100
+				allowedMemory := crdMemory * int64(100-thresholdPercent) / 100
+				if maxMemoryBytes > allowedMemory {
+					// maxmemory exceeds threshold, reject
+					return false
+				}
+			}
+		}
+	}
+
+	return true // Valid configuration
 }
 
 // EnsureRedisConfigMap makes sure the Redis ConfigMap exists

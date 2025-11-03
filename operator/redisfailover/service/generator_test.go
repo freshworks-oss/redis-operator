@@ -528,7 +528,7 @@ func TestRedisStatefulSetStorageGeneration(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything, mock.Anything).Once().Run(func(args mock.Arguments) {
 			ss := args.Get(1).(*appsv1.StatefulSet)
 			generatedStatefulSet = *ss
 		}).Return(nil)
@@ -582,7 +582,7 @@ func TestRedisStatefulSetCommands(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything, mock.Anything).Once().Run(func(args mock.Arguments) {
 			ss := args.Get(1).(*appsv1.StatefulSet)
 			gotCommands = ss.Spec.Template.Spec.Containers[0].Command
 		}).Return(nil)
@@ -682,7 +682,7 @@ func TestRedisStatefulSetPodAnnotations(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything, mock.Anything).Once().Run(func(args mock.Arguments) {
 			ss := args.Get(1).(*appsv1.StatefulSet)
 			gotPodAnnotations = ss.Spec.Template.ObjectMeta.Annotations
 		}).Return(nil)
@@ -772,7 +772,7 @@ func TestRedisStatefulSetServiceAccountName(t *testing.T) {
 
 		ms := &mK8SService.Services{}
 		ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
-		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything, mock.Anything).Once().Run(func(args mock.Arguments) {
 			ss := args.Get(1).(*appsv1.StatefulSet)
 			gotServiceAccountName = ss.Spec.Template.Spec.ServiceAccountName
 		}).Return(nil)

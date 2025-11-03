@@ -109,7 +109,7 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 			})
 
 			service := k8s.NewStatefulSetService(mcli, log.Dummy, metrics.Dummy)
-			err := service.CreateOrUpdateStatefulSet(testns, test.statefulSet)
+			err := service.CreateOrUpdateStatefulSet(testns, test.statefulSet, true)
 
 			if test.expErr {
 				assert.Error(err)
@@ -208,7 +208,7 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 				return true, action.(kubetesting.UpdateActionImpl).Object, nil
 			})
 			service := k8s.NewStatefulSetService(mcli, log.Dummy, metrics.Dummy)
-			err := service.CreateOrUpdateStatefulSet(testns, afterSts)
+			err := service.CreateOrUpdateStatefulSet(testns, afterSts, true)
 			assert.NoError(err)
 			assert.Equal(pvcList.Items[0].Spec.Resources, pvcList.Items[1].Spec.Resources)
 			// should not call update
@@ -216,7 +216,7 @@ func TestStatefulSetServiceGetCreateOrUpdate(t *testing.T) {
 				panic("shouldn't call update")
 			})
 			service = k8s.NewStatefulSetService(mcli, log.Dummy, metrics.Dummy)
-			err = service.CreateOrUpdateStatefulSet(testns, afterSts)
+			err = service.CreateOrUpdateStatefulSet(testns, afterSts, true)
 			assert.NoError(err)
 		})
 	}

@@ -328,6 +328,7 @@ func (r *RedisFailoverHealer) SetRedisCustomConfig(ip string, podMemory int64, r
 // validateMaxMemoryConfig validates maxmemory configuration against pod memory using percentage-based threshold
 func (r *RedisFailoverHealer) validateMaxMemoryConfig(customConfig []string, podMemory int64, ip string, rf *redisfailoverv1.RedisFailover) ([]string, error) {
 	validatedConfig := make([]string, 0, len(customConfig))
+	var validationError error
 
 	// Get the memory threshold percentage (default is 10%)
 	thresholdPercent := rf.Spec.Redis.MemoryThreshold
@@ -342,10 +343,11 @@ func (r *RedisFailoverHealer) validateMaxMemoryConfig(customConfig []string, pod
 			parts := strings.Fields(configLine)
 			if len(parts) >= 2 {
 				maxMemoryStr := parts[1]
-				maxMemoryBytes, err := parseMemorySize(maxMemoryStr)
+				maxMemoryBytes, err := ParseMemorySize(maxMemoryStr)
 				if err != nil {
-					r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Failed to parse maxmemory value '%s' for Redis IP %s: %v", maxMemoryStr, ip, err)
-					return nil, fmt.Errorf("invalid maxmemory configuration '%s': %w", configLine, err)
+					r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Failed to parse maxmemory value '%s' for Redis IP %s: %v, skipping this config line", maxMemoryStr, ip, err)
+					validationError = fmt.Errorf("invalid maxmemory configuration '%s': %w", configLine, err)
+					continue // Skip this invalid config line but continue with others
 				}
 
 				// Calculate allowed memory: pod memory * (100 - threshold) / 100
@@ -353,23 +355,23 @@ func (r *RedisFailoverHealer) validateMaxMemoryConfig(customConfig []string, pod
 				if podMemory > 0 {
 					allowedMemory := podMemory * int64(100-thresholdPercent) / 100
 					if maxMemoryBytes > allowedMemory {
-						r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("maxmemory configuration %d bytes exceeds allowed limit %d bytes (%d%% of pod memory %d bytes, threshold: %d%%) for Redis IP %s", maxMemoryBytes, allowedMemory, 100-thresholdPercent, podMemory, thresholdPercent, ip)
-						return nil, fmt.Errorf("maxmemory %d bytes exceeds allowed limit %d bytes (%d%% of pod memory %d bytes, threshold: %d%%)", maxMemoryBytes, allowedMemory, 100-thresholdPercent, podMemory, thresholdPercent)
+						r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("maxmemory configuration %d bytes exceeds allowed limit %d bytes (%d%% of pod memory %d bytes, threshold: %d%%) for Redis IP %s, skipping this config line", maxMemoryBytes, allowedMemory, 100-thresholdPercent, podMemory, thresholdPercent, ip)
+						validationError = fmt.Errorf("maxmemory %d bytes exceeds allowed limit %d bytes (%d%% of pod memory %d bytes, threshold: %d%%)", maxMemoryBytes, allowedMemory, 100-thresholdPercent, podMemory, thresholdPercent)
+						continue // Skip this invalid maxmemory line but continue with others
 					}
-
 				}
 			}
 		}
 
-		// Add all configurations (including validated maxmemory) to the final config
+		// Add all valid configurations (including valid maxmemory and all other configs like maxmemory-policy)
 		validatedConfig = append(validatedConfig, configLine)
 	}
 
-	return validatedConfig, nil
+	return validatedConfig, validationError
 }
 
-// parseMemorySize parses Redis memory size strings (e.g., "1gb", "512mb", "1024")
-func parseMemorySize(sizeStr string) (int64, error) {
+// ParseMemorySize parses Redis memory size strings (e.g., "1gb", "512mb", "1024")
+func ParseMemorySize(sizeStr string) (int64, error) {
 	sizeStr = strings.ToLower(strings.TrimSpace(sizeStr))
 
 	// Handle plain numbers (bytes)
