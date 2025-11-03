@@ -198,6 +198,12 @@ func TestRedisFailover(t *testing.T) {
 	t.Run("Check MaxMemory Validation Error", func(t *testing.T) {
 		clients.testMaxMemoryValidationError(t, currentNamespace)
 	})
+
+	// Check that maxmemory is not processed via customconfig if maxmemory validation fails when maxmemory exceeds pod memory
+	t.Run("Check MaxMemory Healing Validation", func(t *testing.T) {
+		clients.testMaxMemoryHealingValidation(t, currentNamespace)
+	})
+
 }
 
 func TestRedisFailoverMyMaster(t *testing.T) {
@@ -652,6 +658,135 @@ func (c *clients) testMaxMemoryValidationError(t *testing.T, currentNamespace st
 	// Check that the StatefulSet was NOT created due to validation error
 	_, err = c.k8sClient.AppsV1().StatefulSets(currentNamespace).Get(context.Background(), fmt.Sprintf("rfr-%s", rfName), metav1.GetOptions{})
 	assert.True(errors.IsNotFound(err), "StatefulSet should not be created when maxmemory validation fails")
+
+	// Cleanup: Delete the RedisFailover
+	err = c.rfClient.DatabasesV1().RedisFailovers(currentNamespace).Delete(context.Background(), rfName, metav1.DeleteOptions{})
+	require.NoError(err)
+}
+func (c *clients) testMaxMemoryHealingValidation(t *testing.T, currentNamespace string) {
+	assert := assert.New(t)
+	require := require.New(t)
+
+	// Create a RedisFailover with valid configuration first
+	rfName := "maxmemory-healing-test"
+	toCreate := &redisfailoverv1.RedisFailover{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      rfName,
+			Namespace: currentNamespace,
+		},
+		Spec: redisfailoverv1.RedisFailoverSpec{
+			Redis: redisfailoverv1.RedisSettings{
+				Replicas: 1,
+				Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{
+						corev1.ResourceMemory: resource.MustParse("200Mi"), // Pod memory limit: 200Mi
+					},
+				},
+				CustomConfig: []string{
+					"maxmemory 50mb",               // Valid maxmemory (within limits)
+					"maxmemory-policy allkeys-lru", // Other config that should be applied
+				},
+				Exporter: redisfailoverv1.Exporter{
+					Enabled: true,
+				},
+			},
+			Sentinel: redisfailoverv1.SentinelSettings{
+				Replicas: 1,
+			},
+			Auth: redisfailoverv1.AuthSettings{
+				SecretPath: authSecretPath,
+			},
+		},
+	}
+
+	// Create the RedisFailover CRD
+	_, err := c.rfClient.DatabasesV1().RedisFailovers(currentNamespace).Create(context.Background(), toCreate, metav1.CreateOptions{})
+	require.NoError(err)
+
+	// Wait for the operator to create resources
+	time.Sleep(40 * time.Second)
+
+	// Verify StatefulSet was created successfully
+	redisSS, err := c.k8sClient.AppsV1().StatefulSets(currentNamespace).Get(context.Background(), fmt.Sprintf("rfr-%s", rfName), metav1.GetOptions{})
+	require.NoError(err)
+	assert.Equal(int32(1), *redisSS.Spec.Replicas)
+
+	// Wait for pods to be ready
+	time.Sleep(40 * time.Second)
+
+	// Get Redis pod to verify initial configuration
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.FormatLabels(redisSS.Spec.Selector.MatchLabels),
+	}
+	redisPods, err := c.k8sClient.CoreV1().Pods(currentNamespace).List(context.Background(), listOptions)
+	require.NoError(err)
+	require.True(len(redisPods.Items) > 0, "should have Redis pods")
+
+	// Connect to Redis and verify initial maxmemory configuration
+	redisPod := redisPods.Items[0]
+	rClient := rediscli.NewClient(&rediscli.Options{
+		Addr:     net.JoinHostPort(redisPod.Status.PodIP, "6379"),
+		Password: testPass,
+		DB:       0,
+	})
+	defer rClient.Close()
+
+	// Verify initial maxmemory is set correctly
+	result := rClient.ConfigGet(context.TODO(), "maxmemory")
+	require.NoError(result.Err())
+	values, err := result.Result()
+	require.NoError(err)
+	require.Len(values, 2)
+	assert.NotEqual("0", values[1], "maxmemory should be set initially")
+
+	// Verify maxmemory-policy is set
+	policyResult := rClient.ConfigGet(context.TODO(), "maxmemory-policy")
+	require.NoError(policyResult.Err())
+	policyValues, err := policyResult.Result()
+	require.NoError(err)
+	require.Len(policyValues, 2)
+	assert.Equal("allkeys-lru", policyValues[1])
+
+	// Now update the RedisFailover with invalid maxmemory (exceeds pod memory)
+	rf, err := c.rfClient.DatabasesV1().RedisFailovers(currentNamespace).Get(context.Background(), rfName, metav1.GetOptions{})
+	require.NoError(err)
+
+	rf.Spec.Redis.CustomConfig = []string{
+		"maxmemory 300mb",              // Invalid maxmemory (exceeds 200Mi pod limit)
+		"maxmemory-policy allkeys-lfu", // Valid config that should still be applied
+		"tcp-keepalive 120",            // Another valid config
+	}
+
+	_, err = c.rfClient.DatabasesV1().RedisFailovers(currentNamespace).Update(context.Background(), rf, metav1.UpdateOptions{})
+	require.NoError(err)
+
+	// Wait for healing process to attempt applying the configuration
+	time.Sleep(45 * time.Second)
+
+	// Verify that the invalid maxmemory was NOT applied (should remain the old value or be unset)
+	// but other valid configurations were applied
+	newResult := rClient.ConfigGet(context.TODO(), "maxmemory")
+	require.NoError(newResult.Err())
+	newValues, err := newResult.Result()
+	require.NoError(err)
+	require.Len(newValues, 2)
+	// The maxmemory should not be the invalid 300mb value
+	assert.NotEqual("314572800", newValues[1], "invalid maxmemory should not be applied")
+
+	// Verify that valid configurations were still applied
+	newPolicyResult := rClient.ConfigGet(context.TODO(), "maxmemory-policy")
+	require.NoError(newPolicyResult.Err())
+	newPolicyValues, err := newPolicyResult.Result()
+	require.NoError(err)
+	require.Len(newPolicyValues, 2)
+	assert.Equal("allkeys-lfu", newPolicyValues[1], "valid maxmemory-policy should be applied")
+
+	keepaliveResult := rClient.ConfigGet(context.TODO(), "tcp-keepalive")
+	require.NoError(keepaliveResult.Err())
+	keepaliveValues, err := keepaliveResult.Result()
+	require.NoError(err)
+	require.Len(keepaliveValues, 2)
+	assert.Equal("120", keepaliveValues[1], "valid tcp-keepalive should be applied")
 
 	// Cleanup: Delete the RedisFailover
 	err = c.rfClient.DatabasesV1().RedisFailovers(currentNamespace).Delete(context.Background(), rfName, metav1.DeleteOptions{})

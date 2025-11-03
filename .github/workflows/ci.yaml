@@ -50,7 +50,7 @@ jobs:
               id: crd_changed
               run: |
                   git fetch origin master
-                  if git diff --name-only origin/master...HEAD | grep -q "redisoperator/manifests/databases.spotahome.com_redisfailovers.yaml"; then
+                  if git diff --name-only origin/master...HEAD | grep -q "redis-operator/manifests/databases.spotahome.com_redisfailovers.yaml"; then
                       echo "CRD databases.spotahome.com_redisfailovers.yaml file changed"
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
