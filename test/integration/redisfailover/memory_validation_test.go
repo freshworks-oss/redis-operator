@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/homedir"
 
@@ -178,7 +179,7 @@ func (c *clients) testMemoryValidationScenarios(t *testing.T, currentNamespace s
 						MemoryOverheadPercentage: tc.overhead,
 						Resources: v1.ResourceRequirements{
 							Limits: v1.ResourceList{
-								v1.ResourceMemory: tc.podMemory,
+								v1.ResourceMemory: resource.MustParse(tc.podMemory),
 							},
 						},
 						CustomConfig: []string{
@@ -274,7 +275,7 @@ func (c *clients) testMemoryParsingEdgeCases(t *testing.T, currentNamespace stri
 						MemoryOverheadPercentage: 10,
 						Resources: v1.ResourceRequirements{
 							Limits: v1.ResourceList{
-								v1.ResourceMemory: "1Gi", // 1GB pod memory
+								v1.ResourceMemory: resource.MustParse("1Gi"), // 1GB pod memory
 							},
 						},
 						CustomConfig: []string{
@@ -331,7 +332,7 @@ func (c *clients) testMemoryThresholdBoundaries(t *testing.T, currentNamespace s
 					MemoryOverheadPercentage: 10, // 90% usable
 					Resources: v1.ResourceRequirements{
 						Limits: v1.ResourceList{
-							v1.ResourceMemory: "1000Mi", // ~1048MB
+							v1.ResourceMemory: resource.MustParse("1000Mi"), // ~1048MB
 						},
 					},
 					CustomConfig: []string{
@@ -371,7 +372,7 @@ func (c *clients) testMemoryThresholdBoundaries(t *testing.T, currentNamespace s
 					MemoryOverheadPercentage: 10, // 90% usable
 					Resources: v1.ResourceRequirements{
 						Limits: v1.ResourceList{
-							v1.ResourceMemory: "1000Mi", // ~1048MB
+							v1.ResourceMemory: resource.MustParse("1000Mi"), // ~1048MB
 						},
 					},
 					CustomConfig: []string{
@@ -417,7 +418,7 @@ func (c *clients) testMemoryValidationNewDeployment(t *testing.T, currentNamespa
 					MemoryOverheadPercentage: 10, // 10% overhead = 90% usable
 					Resources: v1.ResourceRequirements{
 						Limits: v1.ResourceList{
-							v1.ResourceMemory: "1Gi", // 1GB pod memory
+							v1.ResourceMemory: resource.MustParse("1Gi"), // 1GB pod memory
 						},
 					},
 					CustomConfig: []string{
@@ -460,7 +461,7 @@ func (c *clients) testMemoryValidationNewDeployment(t *testing.T, currentNamespa
 					MemoryOverheadPercentage: 10, // 10% overhead = 90% usable
 					Resources: v1.ResourceRequirements{
 						Limits: v1.ResourceList{
-							v1.ResourceMemory: "2Gi", // 2GB pod memory
+							v1.ResourceMemory: resource.MustParse("2Gi"), // 2GB pod memory
 						},
 					},
 					CustomConfig: []string{
@@ -510,7 +511,7 @@ func (c *clients) testMemoryValidationExistingDeployment(t *testing.T, currentNa
 				MemoryOverheadPercentage: 10,
 				Resources: v1.ResourceRequirements{
 					Limits: v1.ResourceList{
-						v1.ResourceMemory: "1Gi",
+						v1.ResourceMemory: resource.MustParse("1Gi"),
 					},
 				},
 				CustomConfig: []string{
@@ -574,7 +575,7 @@ func (c *clients) testMemoryValidationExistingDeployment(t *testing.T, currentNa
 		require.NoError(err)
 
 		// Update both pod memory and maxmemory
-		rf.Spec.Redis.Resources.Limits[v1.ResourceMemory] = "2Gi" // Increase pod memory to 2GB
+		rf.Spec.Redis.Resources.Limits[v1.ResourceMemory] = resource.MustParse("2Gi") // Increase pod memory to 2GB
 		rf.Spec.Redis.CustomConfig = []string{
 			"maxmemory 1800mb",             // Valid with new 2GB limit: 1800MB < 90% of 2GB (1843MB)
 			"maxmemory-policy allkeys-lfu", // Valid config
@@ -623,7 +624,7 @@ func (c *clients) testMemoryOverheadPercentage(t *testing.T, currentNamespace st
 					// MemoryOverheadPercentage not set - should default to 10%
 					Resources: v1.ResourceRequirements{
 						Limits: v1.ResourceList{
-							v1.ResourceMemory: "512Mi",
+							v1.ResourceMemory: resource.MustParse("512Mi"),
 						},
 					},
 					CustomConfig: []string{
@@ -668,7 +669,7 @@ func (c *clients) testMemoryOverheadPercentage(t *testing.T, currentNamespace st
 					MemoryOverheadPercentage: 25, // 25% overhead = 75% usable
 					Resources: v1.ResourceRequirements{
 						Limits: v1.ResourceList{
-							v1.ResourceMemory: "1Gi",
+							v1.ResourceMemory: resource.MustParse("1Gi"),
 						},
 					},
 					CustomConfig: []string{
@@ -711,7 +712,7 @@ func (c *clients) testMemoryOverheadPercentage(t *testing.T, currentNamespace st
 					MemoryOverheadPercentage: 50, // 50% overhead = 50% usable
 					Resources: v1.ResourceRequirements{
 						Limits: v1.ResourceList{
-							v1.ResourceMemory: "2Gi",
+							v1.ResourceMemory: resource.MustParse("2Gi"),
 						},
 					},
 					CustomConfig: []string{
