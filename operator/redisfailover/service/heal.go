@@ -11,6 +11,7 @@ import (
 	"github.com/freshworks/redis-operator/log"
 	"github.com/freshworks/redis-operator/service/k8s"
 	"github.com/freshworks/redis-operator/service/redis"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -24,7 +25,7 @@ type RedisFailoverHeal interface {
 	NewSentinelMonitorWithPort(ip string, monitor string, port string, rFailover *redisfailoverv1.RedisFailover) error
 	RestoreSentinel(ip string) error
 	SetSentinelCustomConfig(ip string, rFailover *redisfailoverv1.RedisFailover) error
-	SetRedisCustomConfig(ip string, podMemory int64, rFailover *redisfailoverv1.RedisFailover) error
+	SetRedisCustomConfig(ip string, rFailover *redisfailoverv1.RedisFailover) error
 	DeletePod(podName string, rFailover *redisfailoverv1.RedisFailover) error
 }
 
@@ -307,12 +308,19 @@ func (r *RedisFailoverHealer) SetSentinelCustomConfig(ip string, rf *redisfailov
 }
 
 // SetRedisCustomConfig will call redis to set the configuration given in config
-func (r *RedisFailoverHealer) SetRedisCustomConfig(ip string, podMemory int64, rf *redisfailoverv1.RedisFailover) error {
+func (r *RedisFailoverHealer) SetRedisCustomConfig(ip string, rf *redisfailoverv1.RedisFailover) error {
 	r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Debugf("Setting the custom config on redis %s...", ip)
 
 	password, err := k8s.GetRedisPassword(r.k8sService, rf)
 	if err != nil {
 		return err
+	}
+
+	// Get memory usage for this Redis pod
+	podMemory, err := r.getRedisPodMemoryUsage(ip, rf)
+	if err != nil {
+		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Failed to get memory usage for Redis IP %s: %v", ip, err)
+		// Continue with podMemory = 0, which will skip memory validation
 	}
 
 	// Validate and filter maxmemory configuration
@@ -325,15 +333,51 @@ func (r *RedisFailoverHealer) SetRedisCustomConfig(ip string, podMemory int64, r
 	return r.redisClient.SetCustomRedisConfig(ip, port, validatedConfig, password)
 }
 
+// getRedisPodMemoryUsage retrieves the memory limit or request for a Redis pod by its IP
+func (r *RedisFailoverHealer) getRedisPodMemoryUsage(redisIP string, rf *redisfailoverv1.RedisFailover) (int64, error) {
+	// Get the specific pod by listing with field selector for IP
+	pods, err := r.k8sService.ListPodsWithFieldSelector(rf.Namespace, "status.podIP="+redisIP)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get pod with IP %s: %w", redisIP, err)
+	}
+
+	if len(pods.Items) == 0 {
+		return 0, fmt.Errorf("no pod found with IP %s", redisIP)
+	}
+
+	// Use the first pod (there should only be one with a specific IP)
+	targetPod := pods.Items[0]
+
+	// Check if the pod is running
+	if targetPod.Status.Phase != corev1.PodRunning {
+		return 0, fmt.Errorf("pod %s is not running, current phase: %s", targetPod.Name, targetPod.Status.Phase)
+	}
+
+	// Get configured memory limit or request from pod spec
+	for _, container := range targetPod.Spec.Containers {
+		if container.Name == "redis" {
+			if memLimit := container.Resources.Limits.Memory(); memLimit != nil {
+				return memLimit.Value(), nil
+			}
+			if memRequest := container.Resources.Requests.Memory(); memRequest != nil {
+				return memRequest.Value(), nil
+			}
+		}
+	}
+
+	// If no resource limits/requests are set, return 0 (validation will be skipped)
+	return 0, fmt.Errorf("no memory configuration found for pod %s", targetPod.Name)
+}
+
 // validateMaxMemoryConfig validates maxmemory configuration against pod memory using percentage-based threshold
 func (r *RedisFailoverHealer) validateMaxMemoryConfig(customConfig []string, podMemory int64, ip string, rf *redisfailoverv1.RedisFailover) ([]string, error) {
 	validatedConfig := make([]string, 0, len(customConfig))
 	var validationError error
 
 	// Get the memory overhead percentage (default is 10%)
-	overheadPercent := rf.Spec.Redis.MemoryOverheadPercentage
-	if overheadPercent <= 0 {
-		overheadPercent = 10 // fallback to default if not set properly
+	reservedPodMemoryPercent := rf.Spec.Redis.ReservedPodMemoryPercent
+	if reservedPodMemoryPercent <= 0 {
+		reservedPodMemoryPercent = 10 // fallback to default if not set properly
 	}
 
 	for _, configLine := range customConfig {
@@ -351,12 +395,12 @@ func (r *RedisFailoverHealer) validateMaxMemoryConfig(customConfig []string, pod
 				}
 
 				// Calculate allowed memory: pod memory * (100 - threshold) / 100
-				// For example: if overhead is 10%, then allowed memory is 90% of pod memory
+				// For example: if reservedPodMemoryPercent is 10%, then allowed memory is only 90% of pod memory
 				if podMemory > 0 {
-					allowedMemory := podMemory * int64(100-overheadPercent) / 100
+					allowedMemory := podMemory * int64(100-reservedPodMemoryPercent) / 100
 					if maxMemoryBytes > allowedMemory {
-						r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("maxmemory configuration %d bytes exceeds allowed limit %d bytes (%d%% of pod memory %d bytes, overhead: %d%%) for Redis IP %s, skipping this config line", maxMemoryBytes, allowedMemory, 100-overheadPercent, podMemory, overheadPercent, ip)
-						validationError = fmt.Errorf("maxmemory %d bytes exceeds allowed limit %d bytes (%d%% of pod memory %d bytes, overhead: %d%%)", maxMemoryBytes, allowedMemory, 100-overheadPercent, podMemory, overheadPercent)
+						r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("maxmemory configuration %d bytes exceeds allowed limit %d bytes (%d%% of pod memory %d bytes, overhead: %d%%) for Redis IP %s, skipping this config line", maxMemoryBytes, allowedMemory, 100-reservedPodMemoryPercent, podMemory, reservedPodMemoryPercent, ip)
+						validationError = fmt.Errorf("maxmemory %d bytes exceeds allowed limit %d bytes (%d%% of pod memory %d bytes, overhead: %d%%)", maxMemoryBytes, allowedMemory, 100-reservedPodMemoryPercent, podMemory, reservedPodMemoryPercent)
 						continue // Skip this invalid maxmemory line but continue with others
 					}
 				}

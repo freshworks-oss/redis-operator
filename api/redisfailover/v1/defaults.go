@@ -1,13 +1,13 @@
 package v1
 
 const (
-	defaultRedisNumber           = 3
-	defaultSentinelNumber        = 3
-	defaultSentinelExporterImage = "quay.io/oliver006/redis_exporter:v1.43.0"
-	defaultExporterImage         = "quay.io/oliver006/redis_exporter:v1.43.0"
-	defaultImage                 = "redis:6.2.6-alpine"
-	defaultRedisPort             = 6379
-	defaultMemoryOverhead        = 10
+	defaultRedisNumber              = 3
+	defaultSentinelNumber           = 3
+	defaultSentinelExporterImage    = "quay.io/oliver006/redis_exporter:v1.43.0"
+	defaultExporterImage            = "quay.io/oliver006/redis_exporter:v1.43.0"
+	defaultImage                    = "redis:6.2.6-alpine"
+	defaultRedisPort                = 6379
+	defaultReservedPodMemoryPercent = 10
 )
 
 var (

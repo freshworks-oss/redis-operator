@@ -26,7 +26,7 @@ type StatefulSet interface {
 	GetStatefulSetPods(namespace, name string) (*corev1.PodList, error)
 	CreateStatefulSet(namespace string, statefulSet *appsv1.StatefulSet) error
 	UpdateStatefulSet(namespace string, statefulSet *appsv1.StatefulSet) error
-	CreateOrUpdateStatefulSet(namespace string, statefulSet *appsv1.StatefulSet, isValidConfig bool) error
+	CreateOrUpdateStatefulSet(namespace string, statefulSet *appsv1.StatefulSet) error
 	DeleteStatefulSet(namespace string, name string) error
 	ListStatefulSets(namespace string) (*appsv1.StatefulSetList, error)
 }
@@ -95,14 +95,11 @@ func (s *StatefulSetService) UpdateStatefulSet(namespace string, statefulSet *ap
 }
 
 // CreateOrUpdateStatefulSet will update the statefulset or create it if does not exist
-func (s *StatefulSetService) CreateOrUpdateStatefulSet(namespace string, statefulSet *appsv1.StatefulSet, isValidConfig bool) error {
+func (s *StatefulSetService) CreateOrUpdateStatefulSet(namespace string, statefulSet *appsv1.StatefulSet) error {
 	storedStatefulSet, err := s.GetStatefulSet(namespace, statefulSet.Name)
 	if err != nil {
 		// If no resource we need to create.
 		if errors.IsNotFound(err) {
-			if !isValidConfig {
-				return fmt.Errorf("maxmemory validation failed, preventing StatefulSet creation for %s", statefulSet.Name)
-			}
 			return s.CreateStatefulSet(namespace, statefulSet)
 		}
 		return err

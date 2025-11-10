@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -118,11 +119,27 @@ func (r *RedisFailoverKubeClient) EnsureRedisStatefulset(rf *redisfailoverv1.Red
 			return err
 		}
 	}
-	// Validate maxmemory configuration against CRD spec before creating StatefulSet
+	// Check if StatefulSet already exists
+	existingStatefulSet, err := r.K8SService.GetStatefulSet(rf.Namespace, GetRedisName(rf))
+	statefulSetExists := err == nil && existingStatefulSet != nil
+
+	// Validate maxmemory configuration against CRD spec
 	isValidConfig := r.validateMaxMemoryConfig(rf)
+	if !isValidConfig {
+		if statefulSetExists {
+			// StatefulSet already exists - log warning and continue
+			// Invalid maxmemory will be filtered out when applying configs to running pods
+			r.logger.WithField("redisfailover", rf.Name).WithField("namespace", rf.Namespace).Warningf("maxmemory configuration exceeds allowed memory limits, invalid maxmemory will be skipped when applying configs to running pods")
+		} else {
+			// StatefulSet doesn't exist yet - block creation
+			err := fmt.Errorf("maxmemory validation failed for RedisFailover %s: maxmemory configuration exceeds allowed memory limits. Cannot create StatefulSet with invalid configuration", rf.Name)
+			r.setEnsureOperationMetrics(rf.Namespace, GetRedisName(rf), "StatefulSet", rf.Name, err)
+			return err
+		}
+	}
 
 	ss := generateRedisStatefulSet(rf, labels, ownerRefs)
-	err := r.K8SService.CreateOrUpdateStatefulSet(rf.Namespace, ss, isValidConfig)
+	err = r.K8SService.CreateOrUpdateStatefulSet(rf.Namespace, ss)
 
 	r.setEnsureOperationMetrics(ss.Namespace, ss.Name, "StatefulSet", rf.Name, err)
 	return err
@@ -150,9 +167,9 @@ func (r *RedisFailoverKubeClient) validateMaxMemoryConfig(rf *redisfailoverv1.Re
 	}
 
 	// Get the memory overhead percentage (default is 10%)
-	overheadPercent := rf.Spec.Redis.MemoryOverheadPercentage
-	if overheadPercent <= 0 {
-		overheadPercent = 10 // Default overhead
+	reservedPodMemoryPercent := rf.Spec.Redis.ReservedPodMemoryPercent
+	if reservedPodMemoryPercent <= 0 {
+		reservedPodMemoryPercent = 10 // Default overhead
 	}
 
 	// Check each custom config line for maxmemory
@@ -169,7 +186,7 @@ func (r *RedisFailoverKubeClient) validateMaxMemoryConfig(rf *redisfailoverv1.Re
 				}
 
 				// Calculate allowed memory: CRD memory * (100 - overhead) / 100
-				allowedMemory := crdMemory * int64(100-overheadPercent) / 100
+				allowedMemory := crdMemory * int64(100-reservedPodMemoryPercent) / 100
 				if maxMemoryBytes > allowedMemory {
 					// maxmemory exceeds overhead limit, reject
 					return false

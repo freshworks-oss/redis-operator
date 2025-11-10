@@ -286,18 +286,8 @@ func (r *RedisFailoverHandler) applyRedisCustomConfig(rf *redisfailoverv1.RedisF
 	if err != nil {
 		return err
 	}
-
-	// Apply custom config with memory validation for each Redis pod
 	for _, rip := range redises {
-		// Get memory usage for this Redis pod
-		memoryUsage, err := r.rfChecker.GetRedisPodMemoryUsage(rip, rf)
-		if err != nil {
-			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Failed to get memory usage for Redis IP %s: %v", rip, err)
-			//return err
-		}
-
-		// Apply custom config with memory validation
-		if err := r.rfHealer.SetRedisCustomConfig(rip, memoryUsage, rf); err != nil {
+		if err := r.rfHealer.SetRedisCustomConfig(rip, rf); err != nil {
 			return err
 		}
 	}

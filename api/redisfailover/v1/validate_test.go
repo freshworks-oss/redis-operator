@@ -105,7 +105,7 @@ func TestValidate(t *testing.T) {
 							Image:                    defaultImage,
 							Replicas:                 defaultRedisNumber,
 							Port:                     defaultRedisPort,
-							MemoryOverheadPercentage: defaultMemoryOverhead,
+							ReservedPodMemoryPercent: defaultReservedPodMemoryPercent,
 							Exporter: Exporter{
 								Image: defaultExporterImage,
 							},

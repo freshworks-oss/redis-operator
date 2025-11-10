@@ -207,9 +207,9 @@ func (_m *Services) CreateOrUpdateService(namespace string, service *v1.Service)
 	return r0
 }
 
-// CreateOrUpdateStatefulSet provides a mock function with given fields: namespace, statefulSet, isValidConfig
-func (_m *Services) CreateOrUpdateStatefulSet(namespace string, statefulSet *appsv1.StatefulSet, isValidConfig bool) error {
-	ret := _m.Called(namespace, statefulSet, isValidConfig)
+// CreateOrUpdateStatefulSet provides a mock function with given fields: namespace, statefulSet
+func (_m *Services) CreateOrUpdateStatefulSet(namespace string, statefulSet *appsv1.StatefulSet) error {
+	ret := _m.Called(namespace, statefulSet)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CreateOrUpdateStatefulSet")
@@ -884,6 +884,36 @@ func (_m *Services) ListPods(namespace string) (*v1.PodList, error) {
 
 	if rf, ok := ret.Get(1).(func(string) error); ok {
 		r1 = rf(namespace)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// ListPodsWithFieldSelector provides a mock function with given fields: namespace, fieldSelector
+func (_m *Services) ListPodsWithFieldSelector(namespace string, fieldSelector string) (*v1.PodList, error) {
+	ret := _m.Called(namespace, fieldSelector)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ListPodsWithFieldSelector")
+	}
+
+	var r0 *v1.PodList
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string, string) (*v1.PodList, error)); ok {
+		return rf(namespace, fieldSelector)
+	}
+	if rf, ok := ret.Get(0).(func(string, string) *v1.PodList); ok {
+		r0 = rf(namespace, fieldSelector)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*v1.PodList)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string, string) error); ok {
+		r1 = rf(namespace, fieldSelector)
 	} else {
 		r1 = ret.Error(1)
 	}

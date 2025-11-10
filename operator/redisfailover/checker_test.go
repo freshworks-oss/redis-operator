@@ -565,12 +565,9 @@ func TestCheckAndHeal(t *testing.T) {
 			if bootstrappingTests && continueTests {
 				// once to get ips for config update, once for the UpdateRedisesPods go right
 				mrfc.On("GetRedisesIPs", rf).Twice().Return([]string{"0.0.0.1", "0.0.0.2", "0.0.0.3"}, nil)
-				mrfc.On("GetRedisPodMemoryUsage", "0.0.0.1", rf).Once().Return(int64(1073741824), nil) // 1GB
-				mrfc.On("GetRedisPodMemoryUsage", "0.0.0.2", rf).Once().Return(int64(1073741824), nil) // 1GB
-				mrfc.On("GetRedisPodMemoryUsage", "0.0.0.3", rf).Once().Return(int64(1073741824), nil) // 1GB
-				mrfh.On("SetRedisCustomConfig", "0.0.0.1", int64(1073741824), rf).Once().Return(nil)
-				mrfh.On("SetRedisCustomConfig", "0.0.0.2", int64(1073741824), rf).Once().Return(nil)
-				mrfh.On("SetRedisCustomConfig", "0.0.0.3", int64(1073741824), rf).Once().Return(nil)
+				mrfh.On("SetRedisCustomConfig", "0.0.0.1", rf).Once().Return(nil)
+				mrfh.On("SetRedisCustomConfig", "0.0.0.2", rf).Once().Return(nil)
+				mrfh.On("SetRedisCustomConfig", "0.0.0.3", rf).Once().Return(nil)
 				mrfc.On("CheckRedisSlavesReady", "0.0.0.1", rf).Once().Return(true, nil)
 				mrfc.On("CheckRedisSlavesReady", "0.0.0.2", rf).Once().Return(true, nil)
 				mrfc.On("CheckRedisSlavesReady", "0.0.0.3", rf).Once().Return(true, nil)
@@ -632,8 +629,7 @@ func TestCheckAndHeal(t *testing.T) {
 					mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
 					mrfc.On("GetRedisesMasterPod", rf).Once().Return(master, nil)
 					mrfc.On("GetRedisRevisionHash", master, rf).Once().Return("1", nil)
-					mrfc.On("GetRedisPodMemoryUsage", master, rf).Once().Return(int64(1073741824), nil) // 1GB
-					mrfh.On("SetRedisCustomConfig", master, int64(1073741824), rf).Once().Return(nil)
+					mrfh.On("SetRedisCustomConfig", master, rf).Once().Return(nil)
 				}
 			}
 

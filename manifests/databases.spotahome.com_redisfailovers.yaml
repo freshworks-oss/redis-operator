@@ -6820,7 +6820,7 @@ spec:
                       - name
                       type: object
                     type: array
-                  memoryOverheadPercentage:
+                  reservedPodMemoryPercent:
                     format: int32
                     type: integer
                   nodeSelector:

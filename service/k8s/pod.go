@@ -23,6 +23,7 @@ type Pod interface {
 	CreateOrUpdatePod(namespace string, pod *corev1.Pod) error
 	DeletePod(namespace string, name string) error
 	ListPods(namespace string) (*corev1.PodList, error)
+	ListPodsWithFieldSelector(namespace string, fieldSelector string) (*corev1.PodList, error)
 	UpdatePodLabels(namespace, podName string, labels map[string]string) error
 	UpdatePodAnnotations(namespace, podName string, annotations map[string]string) error
 	RemovePodAnnotation(namespace, podName string, annotationKey string) error
@@ -98,6 +99,14 @@ func (p *PodService) DeletePod(namespace string, name string) error {
 
 func (p *PodService) ListPods(namespace string) (*corev1.PodList, error) {
 	pods, err := p.kubeClient.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{})
+	recordMetrics(namespace, "Pod", metrics.NOT_APPLICABLE, "LIST", err, p.metricsRecorder)
+	return pods, err
+}
+
+func (p *PodService) ListPodsWithFieldSelector(namespace string, fieldSelector string) (*corev1.PodList, error) {
+	pods, err := p.kubeClient.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{
+		FieldSelector: fieldSelector,
+	})
 	recordMetrics(namespace, "Pod", metrics.NOT_APPLICABLE, "LIST", err, p.metricsRecorder)
 	return pods, err
 }
