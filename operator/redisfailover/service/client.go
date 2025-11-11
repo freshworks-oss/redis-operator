@@ -119,45 +119,86 @@ func (r *RedisFailoverKubeClient) EnsureRedisStatefulset(rf *redisfailoverv1.Red
 			return err
 		}
 	}
-	// Check if StatefulSet already exists
-	existingStatefulSet, err := r.K8SService.GetStatefulSet(rf.Namespace, GetRedisName(rf))
-	statefulSetExists := err == nil && existingStatefulSet != nil
 
-	// Validate maxmemory configuration against CRD spec
-	isValidConfig := r.validateMaxMemoryConfig(rf)
-	if !isValidConfig {
-		if statefulSetExists {
-			// StatefulSet already exists - log warning and continue
-			// Invalid maxmemory will be filtered out when applying configs to running pods
-			r.logger.WithField("redisfailover", rf.Name).WithField("namespace", rf.Namespace).Warningf("maxmemory configuration exceeds allowed memory limits, invalid maxmemory will be skipped when applying configs to running pods")
-		} else {
-			// StatefulSet doesn't exist yet - block creation
-			err := fmt.Errorf("maxmemory validation failed for RedisFailover %s: maxmemory configuration exceeds allowed memory limits. Cannot create StatefulSet with invalid configuration", rf.Name)
-			r.setEnsureOperationMetrics(rf.Namespace, GetRedisName(rf), "StatefulSet", rf.Name, err)
-			return err
-		}
+	// Check and validate StatefulSet before creation/update
+	if err := r.checkAndValidateStatefulSet(rf); err != nil {
+		return err
 	}
 
+	// Generate and create/update StatefulSet
 	ss := generateRedisStatefulSet(rf, labels, ownerRefs)
-	err = r.K8SService.CreateOrUpdateStatefulSet(rf.Namespace, ss)
+	err := r.K8SService.CreateOrUpdateStatefulSet(rf.Namespace, ss)
 
 	r.setEnsureOperationMetrics(ss.Namespace, ss.Name, "StatefulSet", rf.Name, err)
 	return err
 }
 
-// validateMaxMemoryConfig validates maxmemory configuration against CRD spec memory
-func (r *RedisFailoverKubeClient) validateMaxMemoryConfig(rf *redisfailoverv1.RedisFailover) bool {
-	// Get memory from CRD spec
-	var crdMemory int64
-	if rf.Spec.Redis.Resources.Limits != nil {
-		if memLimit := rf.Spec.Redis.Resources.Limits.Memory(); memLimit != nil {
-			crdMemory = memLimit.Value()
+// checkAndValidateStatefulSet checks if StatefulSet exists and validates maxmemory configuration
+// Returns error if validation fails for new StatefulSet creation, logs warning for existing StatefulSets
+func (r *RedisFailoverKubeClient) checkAndValidateStatefulSet(rf *redisfailoverv1.RedisFailover) error {
+	// Check if StatefulSet already exists
+	existingStatefulSet, err := r.K8SService.GetStatefulSet(rf.Namespace, GetRedisName(rf))
+	statefulSetExists := err == nil && existingStatefulSet != nil
+
+	// Run all validation checks
+	// Add more validation functions here as needed
+	isValidConfig := true
+	var validationErrors []string
+
+	// Validation 1: Validate maxmemory configuration
+	if !r.validateMaxMemoryConfig(rf) {
+		isValidConfig = false
+		validationErrors = append(validationErrors, "maxmemory configuration exceeds allowed memory limits")
+	}
+
+	// Validation 2: Add more validations here in the future
+	// Example:
+	// if !r.validateSomeOtherConfig(rf) {
+	//     isValidConfig = false
+	//     validationErrors = append(validationErrors, "some other validation failed")
+	// }
+
+	// Handle validation failures
+	if !isValidConfig {
+		validationMsg := strings.Join(validationErrors, "; ")
+
+		if statefulSetExists {
+			// StatefulSet already exists - log warning and continue
+			// Invalid configs will be filtered out when applying configs to running pods
+			r.logger.WithField("redisfailover", rf.Name).WithField("namespace", rf.Namespace).Warningf("Configuration validation failed: %s. Invalid configs will be skipped when applying to running pods", validationMsg)
+
+			// Record metric for validation warning on existing StatefulSet
+			validationErr := fmt.Errorf("configuration validation warning: %s", validationMsg)
+			r.setEnsureOperationMetrics(rf.Namespace, GetRedisName(rf), "StatefulSet", rf.Name, validationErr)
+
+			return nil
+		} else {
+			// StatefulSet doesn't exist yet - block creation
+			err := fmt.Errorf("configuration validation failed for RedisFailover %s: %s. Cannot create StatefulSet with invalid configuration", rf.Name, validationMsg)
+			r.setEnsureOperationMetrics(rf.Namespace, GetRedisName(rf), "StatefulSet", rf.Name, err)
+			return err
 		}
 	}
 
-	if crdMemory == 0 && rf.Spec.Redis.Resources.Requests != nil {
+	return nil
+}
+
+// validateMaxMemoryConfig validates maxmemory configuration against CRD spec memory
+func (r *RedisFailoverKubeClient) validateMaxMemoryConfig(rf *redisfailoverv1.RedisFailover) bool {
+	// Get memory from CRD spec (prioritize Requests over Limits)
+	var crdMemory int64
+
+	// First priority: Check Requests
+	if rf.Spec.Redis.Resources.Requests != nil {
 		if memRequest := rf.Spec.Redis.Resources.Requests.Memory(); memRequest != nil {
 			crdMemory = memRequest.Value()
+		}
+	}
+
+	// Second priority: If Requests is 0, check Limits
+	if crdMemory == 0 && rf.Spec.Redis.Resources.Limits != nil {
+		if memLimit := rf.Spec.Redis.Resources.Limits.Memory(); memLimit != nil {
+			crdMemory = memLimit.Value()
 		}
 	}
 

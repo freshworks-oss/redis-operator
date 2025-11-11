@@ -11,7 +11,6 @@ import (
 	"github.com/freshworks/redis-operator/log"
 	"github.com/freshworks/redis-operator/service/k8s"
 	"github.com/freshworks/redis-operator/service/redis"
-	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 )
 
@@ -349,18 +348,20 @@ func (r *RedisFailoverHealer) getRedisPodMemoryUsage(redisIP string, rf *redisfa
 	targetPod := pods.Items[0]
 
 	// Check if the pod is running
-	if targetPod.Status.Phase != corev1.PodRunning {
+	if targetPod.Status.Phase != v1.PodRunning {
 		return 0, fmt.Errorf("pod %s is not running, current phase: %s", targetPod.Name, targetPod.Status.Phase)
 	}
 
-	// Get configured memory limit or request from pod spec
+	// Get configured memory from pod spec (prioritize Requests over Limits)
 	for _, container := range targetPod.Spec.Containers {
 		if container.Name == "redis" {
-			if memLimit := container.Resources.Limits.Memory(); memLimit != nil {
-				return memLimit.Value(), nil
-			}
+			// First priority: Check Requests
 			if memRequest := container.Resources.Requests.Memory(); memRequest != nil {
 				return memRequest.Value(), nil
+			}
+			// Second priority: Check Limits
+			if memLimit := container.Resources.Limits.Memory(); memLimit != nil {
+				return memLimit.Value(), nil
 			}
 		}
 	}
