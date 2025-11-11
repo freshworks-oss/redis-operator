@@ -553,14 +553,14 @@ func (r *RedisFailoverChecker) GetRedisPodMemoryUsage(redisIP string, rFailover 
 	// Check if there are resource requests/limits set
 	for _, container := range targetPod.Spec.Containers {
 		if container.Name == "redis" {
-			if memLimit := container.Resources.Limits.Memory(); memLimit != nil {
-				memoryUsage = memLimit.Value()
-				r.logger.Debugf("Found memory limit for pod %s: %d bytes", targetPod.Name, memoryUsage)
-				return memoryUsage, nil
-			}
 			if memRequest := container.Resources.Requests.Memory(); memRequest != nil {
 				memoryUsage = memRequest.Value()
 				r.logger.Debugf("Found memory request for pod %s: %d bytes", targetPod.Name, memoryUsage)
+				return memoryUsage, nil
+			}
+			if memLimit := container.Resources.Limits.Memory(); memLimit != nil {
+				memoryUsage = memLimit.Value()
+				r.logger.Debugf("Found memory limit for pod %s: %d bytes", targetPod.Name, memoryUsage)
 				return memoryUsage, nil
 			}
 		}
