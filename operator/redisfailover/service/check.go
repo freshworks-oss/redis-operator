@@ -527,7 +527,6 @@ func (r *RedisFailoverChecker) CheckRedisSlavesReady(ip string, rFailover *redis
 // GetRedisPodMemoryUsage returns the memory usage of the Redis pod with the given IP
 func (r *RedisFailoverChecker) GetRedisPodMemoryUsage(redisIP string, rFailover *redisfailoverv1.RedisFailover) (int64, error) {
 	// Get the specific pod by listing with field selector for IP
-	// Note: Kubernetes supports field selectors for status.podIP
 	pods, err := r.k8sService.ListPodsWithFieldSelector(rFailover.Namespace, "status.podIP="+redisIP)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get pod with IP %s: %w", redisIP, err)
@@ -555,12 +554,12 @@ func (r *RedisFailoverChecker) GetRedisPodMemoryUsage(redisIP string, rFailover 
 		if container.Name == "redis" {
 			if memRequest := container.Resources.Requests.Memory(); memRequest != nil {
 				memoryUsage = memRequest.Value()
-				r.logger.Debugf("Found memory request for pod %s: %d bytes", targetPod.Name, memoryUsage)
+				r.logger.Debugf("found memory request for pod %s: %d bytes", targetPod.Name, memoryUsage)
 				return memoryUsage, nil
 			}
 			if memLimit := container.Resources.Limits.Memory(); memLimit != nil {
 				memoryUsage = memLimit.Value()
-				r.logger.Debugf("Found memory limit for pod %s: %d bytes", targetPod.Name, memoryUsage)
+				r.logger.Debugf("found memory limit for pod %s: %d bytes", targetPod.Name, memoryUsage)
 				return memoryUsage, nil
 			}
 		}
@@ -568,7 +567,7 @@ func (r *RedisFailoverChecker) GetRedisPodMemoryUsage(redisIP string, rFailover 
 
 	// If no resource limits/requests are set, we can't determine memory usage from the pod spec
 	// In a real implementation, you might want to use metrics-server or custom metrics
-	r.logger.Warningf("No memory limits or requests found for Redis pod %s with IP %s", targetPod.Name, redisIP)
+	r.logger.Warningf("no memory limits or requests found for Redis pod %s with IP %s", targetPod.Name, redisIP)
 	return 0, fmt.Errorf("no memory configuration found for pod %s", targetPod.Name)
 }
 
