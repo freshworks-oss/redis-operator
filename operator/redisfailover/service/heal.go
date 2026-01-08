@@ -332,6 +332,38 @@ func (r *RedisFailoverHealer) SetRedisCustomConfig(address string, rf *redisfail
 		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("maxmemory validation failed for Redis address %s: %v", address, err)
 	}
 
+	// If headless is enabled, add replica-announce-ip with the pod's DNS name
+	// This ensures the master sees replicas by their DNS names in INFO replication
+	if rf.Spec.Redis.Headless {
+		// Get pods to find the DNS name for this address
+		pods, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
+		if err == nil {
+			// Find the pod matching this address and get its DNS name
+			var replicaAnnounceIP string
+			for _, pod := range pods.Items {
+				podAddress := GetPodAddress(&pod, rf)
+				// Match by DNS name or by IP
+				if podAddress == address || pod.Status.PodIP == address {
+					// Get DNS name for this pod
+					if isPodReady(&pod) && pod.Status.PodIP != "" {
+						replicaAnnounceIP = GetPodDNSName(&pod, rf)
+					} else {
+						// Pod not ready yet, skip setting replica-announce-ip
+						// It will be set on next reconciliation when pod is ready
+						break
+					}
+					break
+				}
+			}
+			// If we found a DNS name, add replica-announce-ip to the config
+			if replicaAnnounceIP != "" && strings.Contains(replicaAnnounceIP, ".svc.cluster.local") {
+				replicaAnnounceConfig := fmt.Sprintf("replica-announce-ip %s", replicaAnnounceIP)
+				validatedConfig = append(validatedConfig, replicaAnnounceConfig)
+				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Infof("Adding replica-announce-ip %s for Redis pod at %s", replicaAnnounceIP, address)
+			}
+		}
+	}
+
 	port := getRedisPort(rf.Spec.Redis.Port)
 	return r.redisClient.SetCustomRedisConfig(address, port, validatedConfig, password)
 }
