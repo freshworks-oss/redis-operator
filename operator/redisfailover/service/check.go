@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -183,8 +184,22 @@ func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(master string, rf *redis
 			r.logger.Errorf("Get slave of master failed, maybe this node is not ready, pod address: %s", podAddress)
 			return err
 		}
+		// Compare master with what Redis returns
+		// Redis may return either DNS name or IP depending on how it was configured
 		if slave != "" && slave != master {
-			return fmt.Errorf("slave %s don't have the master %s, has %s", podAddress, master, slave)
+			// If they don't match directly, try resolving both to IPs for comparison
+			// (in case one is DNS and the other is IP, but they refer to the same pod)
+			masterIP := GetPodIPFromAddress(master, rf, rps)
+			slaveIP := GetPodIPFromAddress(slave, rf, rps)
+			if slaveIP != masterIP {
+				return fmt.Errorf("slave %s don't have the master %s, has %s", podAddress, master, slave)
+			}
+			// They resolve to the same IP, but formats differ
+			// If headless is enabled and master is DNS name but slave is IP, prefer DNS name
+			if rf.Spec.Redis.Headless && strings.Contains(master, ".svc.cluster.local") && !strings.Contains(slave, ".svc.cluster.local") {
+				// Master is DNS name, slave is IP - reconfigure to use DNS name
+				return fmt.Errorf("slave %s configured with IP %s but should use DNS name %s for headless mode stability", podAddress, slave, master)
+			}
 		}
 	}
 	return nil
@@ -315,6 +330,7 @@ func (r *RedisFailoverChecker) CheckSentinelMonitor(sentinel, masterName string,
 }
 
 // GetMasterIP connects to all redis and returns the master of the redis failover
+// When headless is enabled, returns DNS name if the master pod is Ready, otherwise returns IP
 func (r *RedisFailoverChecker) GetMasterIP(rf *redisfailoverv1.RedisFailover) (string, error) {
 	rips, err := r.GetRedisesIPs(rf)
 	if err != nil {
@@ -322,6 +338,12 @@ func (r *RedisFailoverChecker) GetMasterIP(rf *redisfailoverv1.RedisFailover) (s
 	}
 
 	password, err := k8s.GetRedisPassword(r.k8sService, rf)
+	if err != nil {
+		return "", err
+	}
+
+	// Get pods to ensure we return DNS names when headless is enabled
+	pods, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
 	if err != nil {
 		return "", err
 	}
@@ -335,7 +357,34 @@ func (r *RedisFailoverChecker) GetMasterIP(rf *redisfailoverv1.RedisFailover) (s
 			continue
 		}
 		if master {
-			masters = append(masters, rip)
+			// If rip is already a DNS name, use it directly
+			// Otherwise, find the pod and get its DNS name if headless is enabled
+			if strings.Contains(rip, ".svc.cluster.local") {
+				masters = append(masters, rip)
+			} else {
+				// rip is an IP, find the matching pod and get DNS name if headless is enabled
+				for _, pod := range pods.Items {
+					if pod.Status.PodIP == rip {
+						masterAddress := GetPodAddress(&pod, rf)
+						masters = append(masters, masterAddress)
+						break
+					}
+				}
+				// If we didn't find a matching pod or GetPodAddress returned IP, use the IP
+				if len(masters) == 0 || masters[len(masters)-1] == rip {
+					// Check if we already added a DNS name
+					added := false
+					for _, m := range masters {
+						if m != rip {
+							added = true
+							break
+						}
+					}
+					if !added {
+						masters = append(masters, rip)
+					}
+				}
+			}
 		}
 	}
 

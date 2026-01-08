@@ -48,7 +48,7 @@ const (
 	sentinelsNumberREString = "sentinels=([0-9]+)"
 	slaveNumberREString     = "slaves=([0-9]+)"
 	sentinelStatusREString  = "status=([a-z]+)"
-	redisMasterHostREString = "master_host:([0-9.]+)"
+	redisMasterHostREString = "master_host:([^\\r\\n]+)"
 	redisRoleMaster         = "role:master"
 	redisSyncing            = "master_sync_in_progress:1"
 	redisMasterSillPending  = "master_host:127.0.0.1"
