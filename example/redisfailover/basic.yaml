@@ -13,6 +13,7 @@ spec:
         memory: 100Mi
   redis:
     replicas: 3
+    headless: true
     resources:
       requests:
         cpu: 100m

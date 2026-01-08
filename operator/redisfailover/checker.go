@@ -7,6 +7,7 @@ import (
 
 	redisfailoverv1 "github.com/freshworks/redis-operator/api/redisfailover/v1"
 	"github.com/freshworks/redis-operator/metrics"
+	rfservice "github.com/freshworks/redis-operator/operator/redisfailover/service"
 )
 
 // UpdateRedisesPods if the running version of pods are equal to the statefulset one
@@ -216,13 +217,24 @@ func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) e
 		return err
 	}
 
+	// Get pods to resolve DNS names to IPs for sentinel monitoring
+	// Sentinel only accepts IP addresses, not DNS names
+	// We need to get the pods to map DNS names back to IPs
+	pods, err := r.rfChecker.GetRedisesPods(rf)
+	if err != nil {
+		return err
+	}
+	
+	// Convert master address (which might be DNS) to IP for sentinel monitoring
+	masterIP := rfservice.GetPodIPFromAddress(master, rf, pods)
+
 	port := getRedisPort(rf.Spec.Redis.Port)
 	for _, sip := range sentinels {
-		err = r.rfChecker.CheckSentinelMonitor(sip, rf.MasterName(), master, port)
+		err = r.rfChecker.CheckSentinelMonitor(sip, rf.MasterName(), masterIP, port)
 		setRedisCheckerMetrics(r.mClient, "sentinel", rf.Namespace, rf.Name, metrics.SENTINEL_WRONG_MASTER, sip, err)
 		if err != nil {
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Fixing sentinel not monitoring expected master: %s", err.Error())
-			if err := r.rfHealer.NewSentinelMonitor(sip, master, rf); err != nil {
+			if err := r.rfHealer.NewSentinelMonitor(sip, masterIP, rf); err != nil {
 				return err
 			}
 		}

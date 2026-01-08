@@ -40,6 +40,7 @@ type RedisFailoverCheck interface {
 	IsRedisRunning(rFailover *redisfailoverv1.RedisFailover) bool
 	IsSentinelRunning(rFailover *redisfailoverv1.RedisFailover) bool
 	IsClusterRunning(rFailover *redisfailoverv1.RedisFailover) bool
+	GetRedisesPods(rFailover *redisfailoverv1.RedisFailover) (*corev1.PodList, error)
 }
 
 // RedisFailoverChecker is our implementation of RedisFailoverCheck interface
@@ -156,7 +157,8 @@ func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(master string, rf *redis
 
 	rport := getRedisPort(rf.Spec.Redis.Port)
 	for _, rp := range rps.Items {
-		if rp.Status.PodIP == master {
+		podAddress := GetPodAddress(&rp, rf)
+		if podAddress == master {
 			err = r.setMasterLabelIfNecessary(rf.Namespace, rp)
 			if err != nil {
 				return err
@@ -176,13 +178,13 @@ func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(master string, rf *redis
 			}
 		}
 
-		slave, err := r.redisClient.GetSlaveOf(rp.Status.PodIP, rport, password)
+		slave, err := r.redisClient.GetSlaveOf(podAddress, rport, password)
 		if err != nil {
-			r.logger.Errorf("Get slave of master failed, maybe this node is not ready, pod ip: %s", rp.Status.PodIP)
+			r.logger.Errorf("Get slave of master failed, maybe this node is not ready, pod address: %s", podAddress)
 			return err
 		}
 		if slave != "" && slave != master {
-			return fmt.Errorf("slave %s don't have the master %s, has %s", rp.Status.PodIP, master, slave)
+			return fmt.Errorf("slave %s don't have the master %s, has %s", podAddress, master, slave)
 		}
 	}
 	return nil
@@ -221,12 +223,13 @@ func (r *RedisFailoverChecker) CheckIfMasterLocalhost(rFailover *redisfailoverv1
 	for _, sip := range redisIps {
 		master, err := r.redisClient.GetSlaveOf(sip, rport, password)
 		if err != nil {
-			r.logger.Warningf("CheckIfMasterLocalhost -- GetSlaveOf Failed")
+			r.logger.Warningf("CheckIfMasterLocalhost -- GetSlaveOf Failed for address %s", sip)
 			return false, err
 		} else if master == "" {
 			r.logger.Warningf("CheckIfMasterLocalhost -- Master already available ?? check manually")
 			return false, errors.New("unexpected master state, fix manually")
 		} else {
+			// Check if master is localhost (127.0.0.1) - this check works for both IP and DNS
 			if master == "127.0.0.1" {
 				lhmaster++
 			}
@@ -328,7 +331,7 @@ func (r *RedisFailoverChecker) GetMasterIP(rf *redisfailoverv1.RedisFailover) (s
 	for _, rip := range rips {
 		master, err := r.redisClient.IsMaster(rip, rport, password)
 		if err != nil {
-			r.logger.Errorf("Get redis info failed, maybe this node is not ready, pod ip: %s", rip)
+			r.logger.Errorf("Get redis info failed, maybe this node is not ready, pod address: %s", rip)
 			continue
 		}
 		if master {
@@ -361,7 +364,7 @@ func (r *RedisFailoverChecker) GetNumberMasters(rf *redisfailoverv1.RedisFailove
 	for _, rip := range rips {
 		master, err := r.redisClient.IsMaster(rip, rport, password)
 		if err != nil {
-			r.logger.Errorf("Get redis info failed, maybe this node is not ready, pod ip: %s", rip)
+			r.logger.Errorf("Get redis info failed, maybe this node is not ready, pod address: %s", rip)
 			continue
 		}
 		if master {
@@ -371,7 +374,7 @@ func (r *RedisFailoverChecker) GetNumberMasters(rf *redisfailoverv1.RedisFailove
 	return nMasters, nil
 }
 
-// GetRedisesIPs returns the IPs of the Redis nodes
+// GetRedisesIPs returns the addresses (IPs or DNS names) of the Redis nodes
 func (r *RedisFailoverChecker) GetRedisesIPs(rf *redisfailoverv1.RedisFailover) ([]string, error) {
 	redises := []string{}
 	rps, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
@@ -380,7 +383,7 @@ func (r *RedisFailoverChecker) GetRedisesIPs(rf *redisfailoverv1.RedisFailover) 
 	}
 	for _, rp := range rps.Items {
 		if rp.Status.Phase == corev1.PodRunning && rp.DeletionTimestamp == nil { // Only work with running pods
-			redises = append(redises, rp.Status.PodIP)
+			redises = append(redises, GetPodAddress(&rp, rf))
 		}
 	}
 	return redises, nil
@@ -414,7 +417,8 @@ func (r *RedisFailoverChecker) GetMaxRedisPodTime(rf *redisfailoverv1.RedisFailo
 		}
 		start := redisNode.Status.StartTime.Round(time.Second)
 		alive := time.Since(start)
-		r.logger.Debugf("Pod %s has been alive for %.f seconds", redisNode.Status.PodIP, alive.Seconds())
+		podAddress := GetPodAddress(&redisNode, rf)
+		r.logger.Debugf("Pod %s (address: %s) has been alive for %.f seconds", redisNode.Name, podAddress, alive.Seconds())
 		if alive > maxTime {
 			maxTime = alive
 		}
@@ -438,7 +442,8 @@ func (r *RedisFailoverChecker) GetRedisesSlavesPods(rf *redisfailoverv1.RedisFai
 	rport := getRedisPort(rf.Spec.Redis.Port)
 	for _, rp := range rps.Items {
 		if rp.Status.Phase == corev1.PodRunning && rp.DeletionTimestamp == nil { // Only work with running
-			master, err := r.redisClient.IsMaster(rp.Status.PodIP, rport, password)
+			podAddress := GetPodAddress(&rp, rf)
+			master, err := r.redisClient.IsMaster(podAddress, rport, password)
 			if err != nil {
 				return []string{}, err
 			}
@@ -465,7 +470,8 @@ func (r *RedisFailoverChecker) GetRedisesMasterPod(rFailover *redisfailoverv1.Re
 	rport := getRedisPort(rFailover.Spec.Redis.Port)
 	for _, rp := range rps.Items {
 		if rp.Status.Phase == corev1.PodRunning && rp.DeletionTimestamp == nil { // Only work with running
-			master, err := r.redisClient.IsMaster(rp.Status.PodIP, rport, password)
+			podAddress := GetPodAddress(&rp, rFailover)
+			master, err := r.redisClient.IsMaster(podAddress, rport, password)
 			if err != nil {
 				return "", err
 			}
@@ -538,6 +544,11 @@ func (r *RedisFailoverChecker) IsSentinelRunning(rFailover *redisfailoverv1.Redi
 // IsClusterRunning returns true if all the pods in the given redisfailover are Running
 func (r *RedisFailoverChecker) IsClusterRunning(rFailover *redisfailoverv1.RedisFailover) bool {
 	return r.IsSentinelRunning(rFailover) && r.IsRedisRunning(rFailover)
+}
+
+// GetRedisesPods returns the PodList of Redis pods
+func (r *RedisFailoverChecker) GetRedisesPods(rFailover *redisfailoverv1.RedisFailover) (*corev1.PodList, error) {
+	return r.k8sService.GetStatefulSetPods(rFailover.Namespace, GetRedisName(rFailover))
 }
 
 func getRedisPort(p int32) string {
