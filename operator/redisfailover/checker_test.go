@@ -635,6 +635,23 @@ func TestCheckAndHeal(t *testing.T) {
 
 			if allowSentinels && !expErr && continueTests {
 				mrfc.On("GetSentinelsIPs", rf).Once().Return([]string{sentinel}, nil)
+				// Create a PodList for DNS resolution (GetRedisesPods is called to resolve DNS names to IPs)
+				// Only needed in non-bootstrapping mode - bootstrapping mode uses external host directly
+				if !test.bootstrapping {
+					podList := &corev1.PodList{
+						Items: []corev1.Pod{
+							{
+								ObjectMeta: metav1.ObjectMeta{
+									Name: "rfr-redisfailover-0",
+								},
+								Status: corev1.PodStatus{
+									PodIP: master,
+								},
+							},
+						},
+					}
+					mrfc.On("GetRedisesPods", rf).Once().Return(podList, nil)
+				}
 				if test.sentinelMonitorOK {
 					if test.bootstrapping {
 						mrfc.On("CheckSentinelMonitor", sentinel, rf.MasterName(), bootstrapMaster, bootstrapMasterPort).Once().Return(nil)
