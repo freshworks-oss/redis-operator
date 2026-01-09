@@ -366,26 +366,18 @@ func (r *RedisFailoverChecker) GetMasterIP(rf *redisfailoverv1.RedisFailover) (s
 				masters = append(masters, rip)
 			} else {
 				// rip is an IP, find the matching pod and get DNS name if headless is enabled
+				foundPod := false
 				for _, pod := range pods.Items {
 					if pod.Status.PodIP == rip {
 						masterAddress := GetPodAddress(&pod, rf)
 						masters = append(masters, masterAddress)
+						foundPod = true
 						break
 					}
 				}
-				// If we didn't find a matching pod or GetPodAddress returned IP, use the IP
-				if len(masters) == 0 || masters[len(masters)-1] == rip {
-					// Check if we already added a DNS name
-					added := false
-					for _, m := range masters {
-						if m != rip {
-							added = true
-							break
-						}
-					}
-					if !added {
-						masters = append(masters, rip)
-					}
+				// If we didn't find a matching pod, use the IP as fallback
+				if !foundPod {
+					masters = append(masters, rip)
 				}
 			}
 		}
