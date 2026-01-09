@@ -332,18 +332,21 @@ func (r *RedisFailoverChecker) CheckSentinelMonitor(sentinel, masterName string,
 // GetMasterIP connects to all redis and returns the master of the redis failover
 // When headless is enabled, returns DNS name if the master pod is Ready, otherwise returns IP
 func (r *RedisFailoverChecker) GetMasterIP(rf *redisfailoverv1.RedisFailover) (string, error) {
-	rips, err := r.GetRedisesIPs(rf)
+	// Get pods first to avoid duplicate calls (GetRedisesIPs also calls GetStatefulSetPods)
+	pods, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
 	if err != nil {
 		return "", err
+	}
+
+	// Build list of Redis addresses from pods (same logic as GetRedisesIPs)
+	rips := []string{}
+	for _, rp := range pods.Items {
+		if rp.Status.Phase == corev1.PodRunning && rp.DeletionTimestamp == nil { // Only work with running pods
+			rips = append(rips, GetPodAddress(&rp, rf))
+		}
 	}
 
 	password, err := k8s.GetRedisPassword(r.k8sService, rf)
-	if err != nil {
-		return "", err
-	}
-
-	// Get pods to ensure we return DNS names when headless is enabled
-	pods, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
 	if err != nil {
 		return "", err
 	}
