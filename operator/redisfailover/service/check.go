@@ -181,7 +181,7 @@ func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(master string, rf *redis
 
 		slave, err := r.redisClient.GetSlaveOf(podAddress, rport, password)
 		if err != nil {
-			r.logger.Errorf("Get slave of master failed, maybe this node is not ready, pod address: %s", podAddress)
+			r.logger.Errorf("get slave of master failed, maybe this node is not ready, pod address: %s", podAddress)
 			return err
 		}
 		// Compare master with what Redis returns
