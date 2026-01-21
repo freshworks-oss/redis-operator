@@ -332,9 +332,9 @@ func (r *RedisFailoverHealer) SetRedisCustomConfig(address string, rf *redisfail
 		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("maxmemory validation failed for Redis address %s: %v", address, err)
 	}
 
-	// If headless is enabled, add replica-announce-ip with the pod's DNS name
+	// If IP mode is disabled, add replica-announce-ip with the pod's DNS name
 	// This ensures the master sees replicas by their DNS names in INFO replication
-	if rf.Spec.Redis.Headless {
+	if rf.Spec.Redis.DisableIPMode {
 		// Get pods to find the DNS name for this address
 		pods, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
 		if err == nil {

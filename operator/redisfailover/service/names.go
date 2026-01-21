@@ -49,10 +49,10 @@ func generateName(typeName, metaName string) string {
 	return fmt.Sprintf("%s%s-%s", baseName, typeName, metaName)
 }
 
-// GetPodDNSName returns the DNS name for a StatefulSet pod when headless is enabled
+// GetPodDNSName returns the DNS name for a StatefulSet pod when IP mode is disabled
 // Format: <statefulset-name>-<ordinal-number>.<service-name>.<namespace>.svc.cluster.local
 func GetPodDNSName(pod *corev1.Pod, rf *redisfailoverv1.RedisFailover) string {
-	if !rf.Spec.Redis.Headless {
+	if !rf.Spec.Redis.DisableIPMode {
 		return pod.Status.PodIP
 	}
 
@@ -86,15 +86,15 @@ func isPodReady(pod *corev1.Pod) bool {
 	return false
 }
 
-// GetPodAddress returns either the DNS name (if headless and pod is ready) or PodIP
-// DNS names for headless services are only available when pods are Ready
+// GetPodAddress returns either the DNS name (if IP mode is disabled and pod is ready) or PodIP
+// DNS names are only available when pods are Ready
 func GetPodAddress(pod *corev1.Pod, rf *redisfailoverv1.RedisFailover) string {
-	if rf.Spec.Redis.Headless && isPodReady(pod) && pod.Status.PodIP != "" {
+	if rf.Spec.Redis.DisableIPMode && isPodReady(pod) && pod.Status.PodIP != "" {
 		// Only use DNS names when pod is Ready and has an IP
 		// This ensures DNS records are available in the cluster
 		return GetPodDNSName(pod, rf)
 	}
-	// Fall back to PodIP if headless is disabled, pod is not ready, or no IP yet
+	// Fall back to PodIP if IP mode is enabled (default), pod is not ready, or no IP yet
 	return pod.Status.PodIP
 }
 

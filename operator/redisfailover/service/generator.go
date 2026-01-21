@@ -94,8 +94,8 @@ func generateRedisService(rf *redisfailoverv1.RedisFailover, labels map[string]s
 	var annotations map[string]string
 	var ports []corev1.ServicePort
 
-	if rf.Spec.Redis.Headless {
-		// Headless service: include Redis port, and exporter port if enabled
+	if rf.Spec.Redis.DisableIPMode {
+		// Headless service (IP mode disabled): include Redis port, and exporter port if enabled
 		ports = []corev1.ServicePort{
 			{
 				Name:       "redis",

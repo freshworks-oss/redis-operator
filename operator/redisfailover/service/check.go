@@ -195,10 +195,10 @@ func (r *RedisFailoverChecker) CheckAllSlavesFromMaster(master string, rf *redis
 				return fmt.Errorf("slave %s don't have the master %s, has %s", podAddress, master, slave)
 			}
 			// They resolve to the same IP, but formats differ
-			// If headless is enabled and master is DNS name but slave is IP, prefer DNS name
-			if rf.Spec.Redis.Headless && strings.Contains(master, ".svc.cluster.local") && !strings.Contains(slave, ".svc.cluster.local") {
+			// If IP mode is disabled and master is DNS name but slave is IP, prefer DNS name
+			if rf.Spec.Redis.DisableIPMode && strings.Contains(master, ".svc.cluster.local") && !strings.Contains(slave, ".svc.cluster.local") {
 				// Master is DNS name, slave is IP - reconfigure to use DNS name
-				return fmt.Errorf("slave %s configured with IP %s but should use DNS name %s for headless mode stability", podAddress, slave, master)
+				return fmt.Errorf("slave %s configured with IP %s but should use DNS name %s for DNS mode stability", podAddress, slave, master)
 			}
 		}
 	}
@@ -330,7 +330,7 @@ func (r *RedisFailoverChecker) CheckSentinelMonitor(sentinel, masterName string,
 }
 
 // GetMasterIP connects to all redis and returns the master of the redis failover
-// When headless is enabled, returns DNS name if the master pod is Ready, otherwise returns IP
+// When IP mode is disabled, returns DNS name if the master pod is Ready, otherwise returns IP
 func (r *RedisFailoverChecker) GetMasterIP(rf *redisfailoverv1.RedisFailover) (string, error) {
 	// Get pods first to avoid duplicate calls (GetRedisesIPs also calls GetStatefulSetPods)
 	pods, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
@@ -361,11 +361,11 @@ func (r *RedisFailoverChecker) GetMasterIP(rf *redisfailoverv1.RedisFailover) (s
 		}
 		if master {
 			// If rip is already a DNS name, use it directly
-			// Otherwise, find the pod and get its DNS name if headless is enabled
+			// Otherwise, find the pod and get its DNS name if IP mode is disabled
 			if strings.Contains(rip, ".svc.cluster.local") {
 				masters = append(masters, rip)
 			} else {
-				// rip is an IP, find the matching pod and get DNS name if headless is enabled
+				// rip is an IP, find the matching pod and get DNS name if IP mode is disabled
 				foundPod := false
 				for _, pod := range pods.Items {
 					if pod.Status.PodIP == rip {
