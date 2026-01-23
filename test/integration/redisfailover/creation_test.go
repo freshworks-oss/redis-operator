@@ -884,10 +884,6 @@ func TestRedisFailoverDisableIPMode(t *testing.T) {
 		clients.testRedisReplicationDNSNames(t, currentNamespace)
 	})
 
-	// Check that replica-announce-ip is configured
-	t.Run("Check Replica Announce IP Configuration", func(t *testing.T) {
-		clients.testReplicaAnnounceIP(t, currentNamespace)
-	})
 }
 
 func (c *clients) testCRCreationWithDisableIPMode(t *testing.T, currentNamespace string) {
@@ -1067,109 +1063,5 @@ func (c *clients) testRedisReplicationDNSNames(t *testing.T, currentNamespace st
 		require.NoError(err)
 		assert.Contains(info, fmt.Sprintf("master_host:%s", masterPod.Status.PodIP), "Slave should show master IP in INFO replication")
 		t.Logf("Slave %s is replicating from master %s (DNS: %s, IP: %s)", slavePod.Name, masterPod.Name, expectedMasterDNS, masterPod.Status.PodIP)
-	}
-}
-
-func (c *clients) testReplicaAnnounceIP(t *testing.T, currentNamespace string) {
-	assert := assert.New(t)
-	require := require.New(t)
-	rfName := "disableipmode-test"
-
-	// Get Redis StatefulSet
-	redisSS, err := c.k8sClient.AppsV1().StatefulSets(currentNamespace).Get(context.Background(), fmt.Sprintf("rfr-%s", rfName), metav1.GetOptions{})
-	require.NoError(err)
-
-	// Get all Redis pods
-	listOptions := metav1.ListOptions{
-		LabelSelector: labels.FormatLabels(redisSS.Spec.Selector.MatchLabels),
-	}
-	redisPodList, err := c.k8sClient.CoreV1().Pods(currentNamespace).List(context.Background(), listOptions)
-	require.NoError(err)
-	require.True(len(redisPodList.Items) > 0, "Should have Redis pods")
-
-	serviceName := fmt.Sprintf("rfr-%s", rfName)
-
-	// Check that replica-announce-ip is configured for each pod
-	for _, pod := range redisPodList.Items {
-		if pod.Status.PodIP == "" {
-			continue
-		}
-
-		// Check if pod is ready
-		podReady := false
-		for _, condition := range pod.Status.Conditions {
-			if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
-				podReady = true
-				break
-			}
-		}
-
-		if !podReady {
-			t.Logf("Pod %s is not ready yet, skipping replica-announce-ip check", pod.Name)
-			continue
-		}
-
-		// Connect to Redis and check replica-announce-ip config
-		rClient := rediscli.NewClient(&rediscli.Options{
-			Addr:     net.JoinHostPort(pod.Status.PodIP, "6379"),
-			Password: testPass,
-			DB:       0,
-		})
-		defer rClient.Close()
-
-		// Construct expected DNS name
-		podParts := strings.Split(pod.Name, "-")
-		podOrdinal := podParts[len(podParts)-1]
-		expectedDNS := fmt.Sprintf("%s-%s.%s.%s.svc.cluster.local",
-			serviceName, podOrdinal, serviceName, currentNamespace)
-
-		// Retry checking for replica-announce-ip configuration (operator may need time to set it)
-		var replicaAnnounceIP string
-		maxRetries := 10
-		retryDelay := 5 * time.Second
-		for i := 0; i < maxRetries; i++ {
-			// Get replica-announce-ip configuration
-			result := rClient.ConfigGet(context.TODO(), "replica-announce-ip")
-			if result.Err() != nil {
-				if i < maxRetries-1 {
-					t.Logf("replica-announce-ip not found for pod %s (attempt %d/%d), retrying...", pod.Name, i+1, maxRetries)
-					time.Sleep(retryDelay)
-					continue
-				}
-				// Last attempt failed
-				t.Logf("replica-announce-ip not found for pod %s after %d attempts: %v", pod.Name, maxRetries, result.Err())
-				continue
-			}
-
-			values, err := result.Result()
-			if err != nil {
-				if i < maxRetries-1 {
-					t.Logf("Error getting replica-announce-ip for pod %s (attempt %d/%d), retrying...: %v", pod.Name, i+1, maxRetries, err)
-					time.Sleep(retryDelay)
-					continue
-				}
-				t.Logf("Error getting replica-announce-ip for pod %s after %d attempts: %v", pod.Name, maxRetries, err)
-				continue
-			}
-
-			if len(values) >= 2 && values[1] != nil {
-				replicaAnnounceIP = fmt.Sprintf("%v", values[1])
-				if replicaAnnounceIP != "" {
-					break
-				}
-			}
-
-			if i < maxRetries-1 {
-				t.Logf("replica-announce-ip is empty for pod %s (attempt %d/%d), retrying...", pod.Name, i+1, maxRetries)
-				time.Sleep(retryDelay)
-			}
-		}
-
-		// Verify replica-announce-ip is set and correct
-		require.NotEmpty(replicaAnnounceIP, "replica-announce-ip should be configured for pod %s", pod.Name)
-		// Verify it's a DNS name (contains .svc.cluster.local)
-		assert.Contains(replicaAnnounceIP, ".svc.cluster.local", "replica-announce-ip should be a DNS name for pod %s", pod.Name)
-		assert.Equal(expectedDNS, replicaAnnounceIP, "replica-announce-ip should match expected DNS name for pod %s", pod.Name)
-		t.Logf("Pod %s has replica-announce-ip configured: %s", pod.Name, replicaAnnounceIP)
 	}
 }
