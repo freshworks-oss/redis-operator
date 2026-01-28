@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	redisfailoverv1 "github.com/freshworks/redis-operator/api/redisfailover/v1"
@@ -49,33 +48,6 @@ func generateName(typeName, metaName string) string {
 	return fmt.Sprintf("%s%s-%s", baseName, typeName, metaName)
 }
 
-// GetPodDNSName returns the DNS name for a StatefulSet pod when IP mode is disabled
-// Format: <statefulset-name>-<ordinal-number>.<service-name>.<namespace>.svc.cluster.local
-func GetPodDNSName(pod *corev1.Pod, rf *redisfailoverv1.RedisFailover) string {
-	if !rf.Spec.Redis.DisableIPMode {
-		return pod.Status.PodIP
-	}
-
-	// Extract ordinal number from pod name (format: <statefulset-name>-<ordinal>)
-	// For example: rfr-redis-redisfailover-0 -> 0
-	parts := strings.Split(pod.Name, "-")
-	if len(parts) == 0 {
-		return pod.Status.PodIP
-	}
-	ordinalStr := parts[len(parts)-1]
-
-	// Validate ordinal is a number
-	if _, err := strconv.Atoi(ordinalStr); err != nil {
-		return pod.Status.PodIP
-	}
-
-	statefulSetName := GetRedisName(rf)
-	serviceName := GetRedisName(rf)
-	namespace := rf.Namespace
-
-	return fmt.Sprintf("%s-%s.%s.%s.svc.cluster.local", statefulSetName, ordinalStr, serviceName, namespace)
-}
-
 // isPodReady checks if a pod is in Ready state
 func isPodReady(pod *corev1.Pod) bool {
 	for _, condition := range pod.Status.Conditions {
@@ -90,9 +62,10 @@ func isPodReady(pod *corev1.Pod) bool {
 // DNS names are only available when pods are Ready
 func GetPodAddress(pod *corev1.Pod, rf *redisfailoverv1.RedisFailover) string {
 	if rf.Spec.Redis.DisableIPMode && isPodReady(pod) && pod.Status.PodIP != "" {
-		// Only use DNS names when pod is Ready and has an IP
-		// This ensures DNS records are available in the cluster
-		return GetPodDNSName(pod, rf)
+		serviceName := GetRedisName(rf)
+		namespace := rf.Namespace
+
+		return fmt.Sprintf("%s.%s.%s.svc.cluster.local", pod.Name, serviceName, namespace)
 	}
 	// Fall back to PodIP if IP mode is enabled (default), pod is not ready, or no IP yet
 	return pod.Status.PodIP

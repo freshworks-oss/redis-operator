@@ -15,73 +15,6 @@ import (
 	rfservice "github.com/freshworks/redis-operator/operator/redisfailover/service"
 )
 
-func TestGetPodDNSName(t *testing.T) {
-	tests := []struct {
-		name           string
-		disableIPMode  bool
-		podName        string
-		rfName         string
-		rfNamespace    string
-		expectedResult string
-	}{
-		{
-			name:           "IP mode enabled (default) - returns PodIP",
-			disableIPMode:  false,
-			podName:        "rfr-redisfailover-0",
-			rfName:         "redisfailover",
-			rfNamespace:    "basic",
-			expectedResult: "10.0.0.1",
-		},
-		{
-			name:           "IP mode disabled - returns DNS name",
-			disableIPMode:  true,
-			podName:        "rfr-redisfailover-0",
-			rfName:         "redisfailover",
-			rfNamespace:    "basic",
-			expectedResult: "rfr-redisfailover-0.rfr-redisfailover.basic.svc.cluster.local",
-		},
-		{
-			name:           "IP mode disabled - pod with ordinal 1",
-			disableIPMode:  true,
-			podName:        "rfr-redisfailover-1",
-			rfName:         "redisfailover",
-			rfNamespace:    "testns",
-			expectedResult: "rfr-redisfailover-1.rfr-redisfailover.testns.svc.cluster.local",
-		},
-		{
-			name:           "IP mode disabled - invalid pod name (no ordinal)",
-			disableIPMode:  true,
-			podName:        "invalid-pod-name",
-			rfName:         "redisfailover",
-			rfNamespace:    "basic",
-			expectedResult: "10.0.0.1",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			assert := assert.New(t)
-
-			rf := generateRF()
-			rf.Name = test.rfName
-			rf.Namespace = test.rfNamespace
-			rf.Spec.Redis.DisableIPMode = test.disableIPMode
-
-			pod := &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: test.podName,
-				},
-				Status: corev1.PodStatus{
-					PodIP: "10.0.0.1",
-				},
-			}
-
-			result := rfservice.GetPodDNSName(pod, rf)
-			assert.Equal(test.expectedResult, result)
-		})
-	}
-}
-
 func TestGetPodAddress(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -365,7 +298,7 @@ func TestGetMasterIPWithDisableIPMode(t *testing.T) {
 				Items: []corev1.Pod{
 					{
 						ObjectMeta: metav1.ObjectMeta{
-							Name: "rfr-redisfailover-0",
+							Name: "rfr-test-0", // Pod name should match StatefulSet name from GetRedisName(rf)
 						},
 						Status: corev1.PodStatus{
 							PodIP: "10.0.0.1",

@@ -346,7 +346,8 @@ func (r *RedisFailoverHealer) SetRedisCustomConfig(address string, rf *redisfail
 				if podAddress == address || pod.Status.PodIP == address {
 					// Get DNS name for this pod
 					if isPodReady(&pod) && pod.Status.PodIP != "" {
-						replicaAnnounceIP = GetPodDNSName(&pod, rf)
+						serviceName := GetRedisName(rf)
+						replicaAnnounceIP = fmt.Sprintf("%s.%s.%s.svc.cluster.local", pod.Name, serviceName, rf.Namespace)
 					} else {
 						// Pod not ready yet, skip setting replica-announce-ip
 						// It will be set on next reconciliation when pod is ready
