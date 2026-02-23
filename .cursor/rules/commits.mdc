@@ -1,0 +1,9 @@
+---
+description: Do not add Co-authored-by for Cursor in git commits
+alwaysApply: true
+---
+
+# Git commits
+
+- **Never** add a `Co-authored-by:` trailer (e.g. `Co-authored-by: Cursor <...>`) to commit messages.
+- Keep commit messages plain; no Co-authored-by lines.

@@ -9,6 +9,7 @@ import (
 	"github.com/spotahome/kooper/v2/controller/leaderelection"
 	kooperlog "github.com/spotahome/kooper/v2/log"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
@@ -23,9 +24,10 @@ import (
 )
 
 const (
-	resync       = 30 * time.Second
-	operatorName = "redis-operator"
-	lockKey      = "redis-failover-lease"
+	resync             = 30 * time.Second
+	operatorName       = "redis-operator"
+	lockKey            = "redis-failover-lease"
+	rfOperatorShardKey = "redis-failover.freshworks.com/shard"
 )
 
 // New will create an operator that is responsible of managing all the required stuff
@@ -65,10 +67,15 @@ func NewRedisFailoverRetriever(cfg Config, cli k8s.Services) controller.Retrieve
 		match, _ := regexp.Match(cfg.SupportedNamespacesRegex, []byte(rf.Namespace))
 		return match
 	}
-	// check in the startup whether the regex compiles
+
+	// Server-side label selector so only RF CRs for this shard are listed/watched.
+	shardSelector := labels.SelectorFromSet(map[string]string{
+		rfOperatorShardKey: cfg.OperatorShardID,
+	}).String()
 
 	return controller.MustRetrieverFromListerWatcher(&cache.ListWatch{
 		ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
+			options.LabelSelector = shardSelector
 			rfList, err := cli.ListRedisFailovers(context.Background(), "", options)
 			if err != nil {
 				return rfList, err
@@ -85,6 +92,7 @@ func NewRedisFailoverRetriever(cfg Config, cli k8s.Services) controller.Retrieve
 			return rfList, err
 		},
 		WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+			options.LabelSelector = shardSelector
 			watcher, err := cli.WatchRedisFailovers(context.Background(), "", options)
 			watcher = watch.Filter(watcher, func(event watch.Event) (watch.Event, bool) {
 				rf, ok := event.Object.(*redisfailoverv1.RedisFailover)

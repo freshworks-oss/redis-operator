@@ -87,8 +87,20 @@ func (m *Main) Run() error {
 	// Get lease lock resource namespace
 	lockNamespace := getNamespace()
 
+	// Shard ID is required for label-sharded operation.
+	operatorShardID := os.Getenv("OPERATOR_SHARD_ID")
+	if operatorShardID == "" {
+		log.Fatalf("OPERATOR_SHARD_ID environment variable is required and must be non-empty")
+	}
+	log.Infof("Starting RF Operator")
+	log.Infof("Shard ID: %s", operatorShardID)
+	log.Infof("Using label selector: redis-failover.freshworks.com/shard=%s", operatorShardID)
+
+	rfConfig := m.flags.ToRedisOperatorConfig()
+	rfConfig.OperatorShardID = operatorShardID
+
 	// Create operator and run.
-	redisfailoverOperator, err := redisfailover.New(m.flags.ToRedisOperatorConfig(), k8sservice, k8sClient, lockNamespace, redisClient, metricsRecorder, m.logger)
+	redisfailoverOperator, err := redisfailover.New(rfConfig, k8sservice, k8sClient, lockNamespace, redisClient, metricsRecorder, m.logger)
 	if err != nil {
 		return err
 	}

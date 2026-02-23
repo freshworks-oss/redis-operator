@@ -38,13 +38,15 @@ import (
 )
 
 const (
-	name           = "testing"
-	namespace      = "testns"
-	redisSize      = int32(3)
-	sentinelSize   = int32(3)
-	authSecretPath = "redis-auth"
-	testPass       = "test-pass"
-	redisAddr      = "redis://127.0.0.1:6379"
+	name                    = "testing"
+	namespace               = "testns"
+	redisSize               = int32(3)
+	sentinelSize            = int32(3)
+	authSecretPath          = "redis-auth"
+	testPass                = "test-pass"
+	redisAddr               = "redis://127.0.0.1:6379"
+	integrationTestShardID   = "integration-test"
+	rfOperatorShardLabelKey = "redis-failover.freshworks.com/shard"
 )
 
 type clients struct {
@@ -112,8 +114,8 @@ func TestRedisFailover(t *testing.T) {
 	// Give time to the namespace to be ready
 	time.Sleep(15 * time.Second)
 
-	// Create operator and run.
-	redisfailoverOperator, err := redisfailover.New(redisfailover.Config{}, k8sservice, k8sClient, currentNamespace, redisClient, metrics.Dummy, log.Dummy)
+	// Create operator and run (label-sharded; tests use integrationTestShardID).
+	redisfailoverOperator, err := redisfailover.New(redisfailover.Config{OperatorShardID: integrationTestShardID}, k8sservice, k8sClient, currentNamespace, redisClient, metrics.Dummy, log.Dummy)
 	require.NoError(err)
 
 	go func() {
@@ -245,8 +247,8 @@ func TestRedisFailoverMyMaster(t *testing.T) {
 	// Give time to the namespace to be ready
 	time.Sleep(15 * time.Second)
 
-	// Create operator and run.
-	redisfailoverOperator, err := redisfailover.New(redisfailover.Config{}, k8sservice, k8sClient, currentNamespace, redisClient, metrics.Dummy, log.Dummy)
+	// Create operator and run (label-sharded; tests use integrationTestShardID).
+	redisfailoverOperator, err := redisfailover.New(redisfailover.Config{OperatorShardID: integrationTestShardID}, k8sservice, k8sClient, currentNamespace, redisClient, metrics.Dummy, log.Dummy)
 	require.NoError(err)
 
 	go func() {
@@ -328,6 +330,7 @@ func (c *clients) testCRCreation(t *testing.T, currentNamespace string, args ...
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: currentNamespace,
+			Labels:    map[string]string{rfOperatorShardLabelKey: integrationTestShardID},
 		},
 		Spec: redisfailoverv1.RedisFailoverSpec{
 			Redis: redisfailoverv1.RedisSettings{
@@ -623,6 +626,7 @@ func (c *clients) testMaxMemoryValidationError(t *testing.T, currentNamespace st
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      rfName,
 			Namespace: currentNamespace,
+			Labels:    map[string]string{rfOperatorShardLabelKey: integrationTestShardID},
 		},
 		Spec: redisfailoverv1.RedisFailoverSpec{
 			Redis: redisfailoverv1.RedisSettings{
@@ -673,6 +677,7 @@ func (c *clients) testMaxMemoryHealingValidation(t *testing.T, currentNamespace 
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      rfName,
 			Namespace: currentNamespace,
+			Labels:    map[string]string{rfOperatorShardLabelKey: integrationTestShardID},
 		},
 		Spec: redisfailoverv1.RedisFailoverSpec{
 			Redis: redisfailoverv1.RedisSettings{
