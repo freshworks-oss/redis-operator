@@ -27,7 +27,7 @@ const (
 	resync             = 30 * time.Second
 	operatorName       = "redis-operator"
 	lockKey            = "redis-failover-lease"
-	rfOperatorShardKey = "redis-failover.freshworks.com/shard"
+	rfOperatorGroupKey = "redis-failover.freshworks.com/operator-group"
 )
 
 // New will create an operator that is responsible of managing all the required stuff
@@ -68,14 +68,14 @@ func NewRedisFailoverRetriever(cfg Config, cli k8s.Services) controller.Retrieve
 		return match
 	}
 
-	// Server-side label selector so only RF CRs for this shard are listed/watched.
-	shardSelector := labels.SelectorFromSet(map[string]string{
-		rfOperatorShardKey: cfg.OperatorShardID,
+	// Server-side label selector so only RF CRs for this group are listed/watched.
+	groupSelector := labels.SelectorFromSet(map[string]string{
+		rfOperatorGroupKey: cfg.OperatorGroupID,
 	}).String()
 
 	return controller.MustRetrieverFromListerWatcher(&cache.ListWatch{
 		ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
-			options.LabelSelector = shardSelector
+			options.LabelSelector = groupSelector
 			rfList, err := cli.ListRedisFailovers(context.Background(), "", options)
 			if err != nil {
 				return rfList, err
@@ -92,7 +92,7 @@ func NewRedisFailoverRetriever(cfg Config, cli k8s.Services) controller.Retrieve
 			return rfList, err
 		},
 		WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
-			options.LabelSelector = shardSelector
+			options.LabelSelector = groupSelector
 			watcher, err := cli.WatchRedisFailovers(context.Background(), "", options)
 			watcher = watch.Filter(watcher, func(event watch.Event) (watch.Event, bool) {
 				rf, ok := event.Object.(*redisfailoverv1.RedisFailover)
