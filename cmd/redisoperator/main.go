@@ -90,11 +90,11 @@ func (m *Main) Run() error {
 	// Group ID is required for label-based grouping.
 	operatorGroupID := os.Getenv("OPERATOR_GROUP_ID")
 	if operatorGroupID == "" {
-		log.Fatalf("OPERATOR_GROUP_ID environment variable is required and must be non-empty")
+		log.Fatalf("operator_group_id environment variable is required and must be non-empty")
 	}
-	log.Infof("Starting RF Operator")
-	log.Infof("Operator group ID: %s", operatorGroupID)
-	log.Infof("Using label selector: redis-failover.freshworks.com/operator-group=%s", operatorGroupID)
+	log.Infof("starting rf operator")
+	log.Infof("operator group id: %s", operatorGroupID)
+	log.Infof("using label selector: redis-failover.freshworks.com/operator-group=%s", operatorGroupID)
 
 	rfConfig := m.flags.ToRedisOperatorConfig()
 	rfConfig.OperatorGroupID = operatorGroupID
