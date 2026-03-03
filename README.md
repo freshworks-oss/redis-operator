@@ -114,6 +114,35 @@ This redis-failover will be managed by the operator, resulting in the following 
 **NOTE**: `NAME` is the named provided when creating the RedisFailover.
 **IMPORTANT**: the name of the redis-failover to be created cannot be longer that 48 characters, due to prepend of redis/sentinel identification and statefulset limitation.
 
+### Label-sharded operator (operator groups)
+
+You can run multiple operator instances, each managing a subset of RedisFailover CRs, by using **operator groups**. Each instance has a group ID; it reconciles only CRs that carry the matching label. This gives flexible assignment (any namespace), server-side filtering via the API server, and no overlap between instances.
+
+1. **Set the group ID** for each operator instance (e.g. in the Deployment):
+
+   ```yaml
+   env:
+     - name: OPERATOR_GROUP_ID
+       value: "group-a"
+   ```
+
+   `OPERATOR_GROUP_ID` is required; the operator exits with an error if it is unset or empty.
+
+2. **Label RedisFailover CRs** with the group that should reconcile them:
+
+   ```yaml
+   apiVersion: databases.spotahome.com/v1
+   kind: RedisFailover
+   metadata:
+     name: my-redis
+     labels:
+       redis-failover.freshworks.com/operator-group: group-a
+   spec:
+     # ...
+   ```
+
+   Only CRs with `metadata.labels["redis-failover.freshworks.com/operator-group"] == <OPERATOR_GROUP_ID>` are reconciled by that operator. You can still use `--supported-namespaces-regex` to restrict which namespaces an instance watches; the group label then further limits which CRs in those namespaces are reconciled.
+
 ### Persistence
 
 The operator has the ability of add persistence to Redis data. By default an `emptyDir` will be used, so the data is not saved.
