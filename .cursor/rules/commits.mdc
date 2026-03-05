@@ -1,9 +1,10 @@
 ---
-description: Do not add Co-authored-by for Cursor in git commits
+description: No Cursor attribution in git commits or generated content
 alwaysApply: true
 ---
 
 # Git commits
 
 - **Never** add a `Co-authored-by:` trailer (e.g. `Co-authored-by: Cursor <...>`) to commit messages.
-- Keep commit messages plain; no Co-authored-by lines.
+- **Never** add any attribution that mentions Cursor, e.g. `Made-with: Cursor`, `Made with Cursor`, or similar lines in commit messages or in generated content.
+- Keep commit messages and any generated text plain; no Co-authored-by, no Made-with, no other Cursor attribution.

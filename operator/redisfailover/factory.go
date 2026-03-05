@@ -26,7 +26,7 @@ import (
 const (
 	resync             = 30 * time.Second
 	operatorName       = "redis-operator"
-	lockKey            = "redis-failover-lease"
+	lockKeyPrefix      = "redis-failover-lease"
 	rfOperatorGroupKey = "redis-failover.freshworks.com/operator-group"
 )
 
@@ -43,7 +43,8 @@ func New(cfg Config, k8sService k8s.Services, k8sClient kubernetes.Interface, lo
 	rfRetriever := NewRedisFailoverRetriever(cfg, k8sService)
 
 	kooperLogger := kooperlogger{Logger: logger.WithField("operator", "redisfailover")}
-	// Leader election service.
+	// Leader election service: one lease per operator group so each deployment can be leader for its group.
+	lockKey := lockKeyPrefix + "-" + cfg.OperatorGroupID
 	leSVC, err := leaderelection.NewDefault(lockKey, lockNamespace, k8sClient, kooperLogger)
 	if err != nil {
 		return nil, err
