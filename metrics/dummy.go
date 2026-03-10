@@ -14,8 +14,9 @@ type dummy struct {
 	koopercontroller.MetricsRecorder
 }
 
-func (d *dummy) SetClusterOK(namespace string, name string)               {}
-func (d *dummy) SetClusterError(namespace string, name string)            {}
+func (d *dummy) SetOperatorInfo(operatorGroupID string, supportedNamespacesRegex string) {}
+func (d *dummy) SetClusterOK(namespace string, name string)                            {}
+func (d *dummy) SetClusterError(namespace string, name string)                          {}
 func (d *dummy) DeleteCluster(namespace string, name string)              {}
 func (d *dummy) SetRedisInstance(IP string, masterIP string, role string) {}
 func (d *dummy) ResetRedisInstance()                                      {}

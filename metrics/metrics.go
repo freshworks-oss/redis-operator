@@ -89,6 +89,10 @@ func NewMetricsTracker() *MetricsTracker {
 type Recorder interface {
 	koopercontroller.MetricsRecorder
 
+	// SetOperatorInfo sets the operator config/identity metric (operator_group_id, supported_namespaces_regex).
+	// Exposed as redis_operator_controller_operator_info with labels so Grafana can show them as strings.
+	SetOperatorInfo(operatorGroupID string, supportedNamespacesRegex string)
+
 	// ClusterOK metrics
 	SetClusterOK(namespace string, name string)
 	SetClusterError(namespace string, name string)
@@ -108,6 +112,7 @@ type Recorder interface {
 type recorder struct {
 	// Metrics fields.
 	metricsTracker       *MetricsTracker
+	operatorInfo         *prometheus.GaugeVec   // config/identity: which operator group this instance is reconciling (labels = strings for Grafana)
 	clusterOK            *prometheus.GaugeVec   // clusterOk is the status of a cluster
 	ensureResource       *prometheus.CounterVec // number of successful "ensure" operators performed by the controller.
 	redisCheck           *prometheus.CounterVec // indicates any error encountered in managed redis instance(s)
@@ -120,6 +125,14 @@ type recorder struct {
 // NewPrometheusMetrics returns a new PromMetrics object.
 func NewRecorder(namespace string, reg prometheus.Registerer) Recorder {
 	metricsTracker := NewMetricsTracker()
+
+	// Info-style config metric: value always 1; labels carry the string config for Grafana (operator_group_id, supported_namespaces_regex).
+	operatorInfo := prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Subsystem: promControllerSubsystem,
+		Name:      "operator_info",
+		Help:      "Config/identity of this operator: which operator group it is reconciling. Value is 1; use labels operator_group_id and supported_namespaces_regex as strings in Grafana.",
+	}, []string{"operator_group_id", "supported_namespaces_regex"})
 
 	clusterOK := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: namespace,
@@ -168,6 +181,7 @@ func NewRecorder(namespace string, reg prometheus.Registerer) Recorder {
 	// Create the instance.
 	r := &recorder{
 		metricsTracker:       metricsTracker,
+		operatorInfo:         operatorInfo,
 		clusterOK:            clusterOK,
 		ensureResource:       ensureResource,
 		redisCheck:           redisCheck,
@@ -181,6 +195,7 @@ func NewRecorder(namespace string, reg prometheus.Registerer) Recorder {
 
 	// Register metrics.
 	reg.MustRegister(
+		r.operatorInfo,
 		r.clusterOK,
 		r.ensureResource,
 		r.redisCheck,
@@ -193,6 +208,10 @@ func NewRecorder(namespace string, reg prometheus.Registerer) Recorder {
 	go r.removeStaleMetrics()
 
 	return r
+}
+
+func (r *recorder) SetOperatorInfo(operatorGroupID string, supportedNamespacesRegex string) {
+	r.operatorInfo.WithLabelValues(operatorGroupID, supportedNamespacesRegex).Set(1)
 }
 
 func (r *recorder) SetClusterOK(namespace string, name string) {

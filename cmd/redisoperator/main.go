@@ -98,6 +98,7 @@ func (m *Main) Run() error {
 
 	rfConfig := m.flags.ToRedisOperatorConfig()
 	rfConfig.OperatorGroupID = operatorGroupID
+	metricsRecorder.SetOperatorInfo(operatorGroupID, m.flags.SupportedNamespacesRegex)
 
 	// Create operator and run.
 	redisfailoverOperator, err := redisfailover.New(rfConfig, k8sservice, k8sClient, lockNamespace, redisClient, metricsRecorder, m.logger)
