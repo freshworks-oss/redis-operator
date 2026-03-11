@@ -120,7 +120,8 @@ func (r *RedisFailoverHealer) MakeMaster(ip string, rf *redisfailoverv1.RedisFai
 		return err
 	}
 	for _, rp := range rps.Items {
-		if rp.Status.PodIP == ip {
+		podAddress := GetPodAddress(&rp, rf)
+		if podAddress == ip {
 			err = r.setMasterLabelIfNecessary(rf.Namespace, rp)
 			if err != nil {
 				return err
@@ -157,12 +158,13 @@ func (r *RedisFailoverHealer) SetOldestAsMaster(rf *redisfailoverv1.RedisFailove
 	port := getRedisPort(rf.Spec.Redis.Port)
 	newMasterIP := ""
 	for _, pod := range ssp.Items {
+		podAddress := GetPodAddress(&pod, rf)
 		if newMasterIP == "" {
-			newMasterIP = pod.Status.PodIP
-			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Infof("New master is %s with ip %s", pod.Name, newMasterIP)
+			newMasterIP = podAddress
+			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Infof("New master is %s with address %s", pod.Name, newMasterIP)
 			if err := r.redisClient.MakeMaster(newMasterIP, port, password); err != nil {
 				newMasterIP = ""
-				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("Make new master failed, master ip: %s, error: %v", pod.Status.PodIP, err)
+				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("Make new master failed, master address: %s, error: %v", podAddress, err)
 				continue
 			}
 
@@ -175,11 +177,11 @@ func (r *RedisFailoverHealer) SetOldestAsMaster(rf *redisfailoverv1.RedisFailove
 				return err
 			}
 
-			newMasterIP = pod.Status.PodIP
+			newMasterIP = podAddress
 		} else {
 			r.logger.Infof("Making pod %s slave of %s", pod.Name, newMasterIP)
-			if err := r.redisClient.MakeSlaveOfWithPort(pod.Status.PodIP, newMasterIP, port, password); err != nil {
-				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("Make slave failed, slave pod ip: %s, master ip: %s, error: %v", pod.Status.PodIP, newMasterIP, err)
+			if err := r.redisClient.MakeSlaveOfWithPort(podAddress, newMasterIP, port, password); err != nil {
+				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("Make slave failed, slave pod address: %s, master address: %s, error: %v", podAddress, newMasterIP, err)
 			}
 
 			err = r.setSlaveLabelIfNecessary(rf.Namespace, pod)
@@ -214,18 +216,19 @@ func (r *RedisFailoverHealer) SetMasterOnAll(masterIP string, rf *redisfailoverv
 
 	port := getRedisPort(rf.Spec.Redis.Port)
 	for _, pod := range ssp.Items {
+		podAddress := GetPodAddress(&pod, rf)
 		//During this configuration process if there is a new master selected , bailout
 		isMaster, err := r.redisClient.IsMaster(masterIP, port, password)
 		if err != nil || !isMaster {
-			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("check master failed maybe this node is not ready(ip changed), or sentinel made a switch: %s", masterIP)
+			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("check master failed maybe this node is not ready(address changed), or sentinel made a switch: %s", masterIP)
 			return err
 		} else {
-			if pod.Status.PodIP == masterIP {
+			if podAddress == masterIP {
 				continue
 			}
 			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Infof("Making pod %s slave of %s", pod.Name, masterIP)
-			if err := r.redisClient.MakeSlaveOfWithPort(pod.Status.PodIP, masterIP, port, password); err != nil {
-				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("Make slave failed, slave ip: %s, master ip: %s, error: %v", pod.Status.PodIP, masterIP, err)
+			if err := r.redisClient.MakeSlaveOfWithPort(podAddress, masterIP, port, password); err != nil {
+				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("Make slave failed, slave address: %s, master address: %s, error: %v", podAddress, masterIP, err)
 				return err
 			}
 
@@ -256,8 +259,9 @@ func (r *RedisFailoverHealer) SetExternalMasterOnAll(masterIP, masterPort string
 	}
 
 	for _, pod := range ssp.Items {
+		podAddress := GetPodAddress(&pod, rf)
 		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Infof("Making pod %s slave of %s:%s", pod.Name, masterIP, masterPort)
-		if err := r.redisClient.MakeSlaveOfWithPort(pod.Status.PodIP, masterIP, masterPort, password); err != nil {
+		if err := r.redisClient.MakeSlaveOfWithPort(podAddress, masterIP, masterPort, password); err != nil {
 			return err
 		}
 
@@ -307,8 +311,8 @@ func (r *RedisFailoverHealer) SetSentinelCustomConfig(ip string, rf *redisfailov
 }
 
 // SetRedisCustomConfig will call redis to set the configuration given in config
-func (r *RedisFailoverHealer) SetRedisCustomConfig(ip string, rf *redisfailoverv1.RedisFailover) error {
-	r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Debugf("Setting the custom config on redis %s...", ip)
+func (r *RedisFailoverHealer) SetRedisCustomConfig(address string, rf *redisfailoverv1.RedisFailover) error {
+	r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Debugf("Setting the custom config on redis %s...", address)
 
 	password, err := k8s.GetRedisPassword(r.k8sService, rf)
 	if err != nil {
@@ -316,36 +320,75 @@ func (r *RedisFailoverHealer) SetRedisCustomConfig(ip string, rf *redisfailoverv
 	}
 
 	// Get memory usage for this Redis pod
-	podMemory, err := r.getRedisPodMemoryUsage(ip, rf)
+	podMemory, err := r.getRedisPodMemoryUsage(address, rf)
 	if err != nil {
-		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Failed to get memory usage for Redis IP %s: %v", ip, err)
+		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Failed to get memory usage for Redis address %s: %v", address, err)
 		// Continue with podMemory = 0, which will skip memory validation
 	}
 
 	// Validate and filter maxmemory configuration
-	validatedConfig, err := r.validateMaxMemoryConfig(rf.Spec.Redis.CustomConfig, podMemory, ip, rf)
+	validatedConfig, err := r.validateMaxMemoryConfig(rf.Spec.Redis.CustomConfig, podMemory, address, rf)
 	if err != nil {
-		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("maxmemory validation failed for Redis IP %s: %v", ip, err)
+		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("maxmemory validation failed for Redis address %s: %v", address, err)
+	}
+
+	// If IP mode is disabled, add replica-announce-ip with the pod's DNS name
+	// This ensures the master sees replicas by their DNS names in INFO replication
+	if rf.Spec.Redis.DisableIPMode {
+		// Get pods to find the DNS name for this address
+		pods, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
+		if err == nil {
+			// Find the pod matching this address and get its DNS name
+			var replicaAnnounceIP string
+			for _, pod := range pods.Items {
+				podAddress := GetPodAddress(&pod, rf)
+				// Match by DNS name or by IP
+				if podAddress == address || pod.Status.PodIP == address {
+					// Get DNS name for this pod
+					if isPodReady(&pod) && pod.Status.PodIP != "" {
+						serviceName := GetRedisName(rf)
+						replicaAnnounceIP = fmt.Sprintf("%s.%s.%s.svc.cluster.local", pod.Name, serviceName, rf.Namespace)
+					} else {
+						// Pod not ready yet, skip setting replica-announce-ip
+						// It will be set on next reconciliation when pod is ready
+						break
+					}
+					break
+				}
+			}
+			// If we found a DNS name, add replica-announce-ip to the config
+			if replicaAnnounceIP != "" && strings.Contains(replicaAnnounceIP, ".svc.cluster.local") {
+				replicaAnnounceConfig := fmt.Sprintf("replica-announce-ip %s", replicaAnnounceIP)
+				validatedConfig = append(validatedConfig, replicaAnnounceConfig)
+				r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Infof("Adding replica-announce-ip %s for Redis pod at %s", replicaAnnounceIP, address)
+			}
+		}
 	}
 
 	port := getRedisPort(rf.Spec.Redis.Port)
-	return r.redisClient.SetCustomRedisConfig(ip, port, validatedConfig, password)
+	return r.redisClient.SetCustomRedisConfig(address, port, validatedConfig, password)
 }
 
-// getRedisPodMemoryUsage retrieves the memory limit or request for a Redis pod by its IP
-func (r *RedisFailoverHealer) getRedisPodMemoryUsage(redisIP string, rf *redisfailoverv1.RedisFailover) (int64, error) {
-	// Get the specific pod by listing with field selector for IP
-	pods, err := r.k8sService.ListPodsWithFieldSelector(rf.Namespace, "status.podIP="+redisIP)
+// getRedisPodMemoryUsage retrieves the memory limit or request for a Redis pod by its address (IP or DNS)
+func (r *RedisFailoverHealer) getRedisPodMemoryUsage(redisAddress string, rf *redisfailoverv1.RedisFailover) (int64, error) {
+	// Get all Redis pods and find the one matching the address
+	rps, err := r.k8sService.GetStatefulSetPods(rf.Namespace, GetRedisName(rf))
 	if err != nil {
-		return 0, fmt.Errorf("failed to get pod with IP %s: %w", redisIP, err)
+		return 0, fmt.Errorf("failed to get pods: %w", err)
 	}
 
-	if len(pods.Items) == 0 {
-		return 0, fmt.Errorf("no pod found with IP %s", redisIP)
+	var targetPod *v1.Pod
+	for _, pod := range rps.Items {
+		podAddress := GetPodAddress(&pod, rf)
+		if podAddress == redisAddress {
+			targetPod = &pod
+			break
+		}
 	}
 
-	// Use the first pod (there should only be one with a specific IP)
-	targetPod := pods.Items[0]
+	if targetPod == nil {
+		return 0, fmt.Errorf("no pod found with address %s", redisAddress)
+	}
 
 	// Check if the pod is running
 	if targetPod.Status.Phase != v1.PodRunning {
@@ -371,7 +414,7 @@ func (r *RedisFailoverHealer) getRedisPodMemoryUsage(redisIP string, rf *redisfa
 }
 
 // validateMaxMemoryConfig validates maxmemory configuration against pod memory using percentage-based threshold
-func (r *RedisFailoverHealer) validateMaxMemoryConfig(customConfig []string, podMemory int64, ip string, rf *redisfailoverv1.RedisFailover) ([]string, error) {
+func (r *RedisFailoverHealer) validateMaxMemoryConfig(customConfig []string, podMemory int64, address string, rf *redisfailoverv1.RedisFailover) ([]string, error) {
 	validatedConfig := make([]string, 0, len(customConfig))
 	var validationErrors []error
 
@@ -390,7 +433,7 @@ func (r *RedisFailoverHealer) validateMaxMemoryConfig(customConfig []string, pod
 				maxMemoryStr := parts[1]
 				maxMemoryBytes, err := ParseMemorySize(maxMemoryStr)
 				if err != nil {
-					r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Failed to parse maxmemory value '%s' for Redis IP %s: %v, skipping this config line", maxMemoryStr, ip, err)
+					r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Warningf("Failed to parse maxmemory value '%s' for Redis address %s: %v, skipping this config line", maxMemoryStr, address, err)
 					validationErrors = append(validationErrors, fmt.Errorf("invalid maxmemory configuration '%s': %w", configLine, err))
 					continue // Skip this invalid config line but continue with others
 				}
@@ -400,7 +443,7 @@ func (r *RedisFailoverHealer) validateMaxMemoryConfig(customConfig []string, pod
 				if podMemory > 0 {
 					allowedMemory := podMemory * int64(100-reservedPodMemoryPercent) / 100
 					if maxMemoryBytes > allowedMemory {
-						r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("maxmemory configuration %d bytes exceeds allowed limit %d bytes (%d%% of pod memory %d bytes, overhead: %d%%) for Redis IP %s, skipping this config line", maxMemoryBytes, allowedMemory, 100-reservedPodMemoryPercent, podMemory, reservedPodMemoryPercent, ip)
+						r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("maxmemory configuration %d bytes exceeds allowed limit %d bytes (%d%% of pod memory %d bytes, overhead: %d%%) for Redis address %s, skipping this config line", maxMemoryBytes, allowedMemory, 100-reservedPodMemoryPercent, podMemory, reservedPodMemoryPercent, address)
 						validationErrors = append(validationErrors, fmt.Errorf("maxmemory %d bytes exceeds allowed limit %d bytes (%d%% of pod memory %d bytes, overhead: %d%%)", maxMemoryBytes, allowedMemory, 100-reservedPodMemoryPercent, podMemory, reservedPodMemoryPercent))
 						continue // Skip this invalid maxmemory line but continue with others
 					}

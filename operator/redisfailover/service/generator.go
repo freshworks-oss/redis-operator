@@ -90,12 +90,51 @@ func generateRedisService(rf *redisfailoverv1.RedisFailover, labels map[string]s
 
 	selectorLabels := generateSelectorLabels(redisRoleName, rf.Name)
 	labels = util.MergeLabels(labels, selectorLabels)
-	defaultAnnotations := map[string]string{
-		"prometheus.io/scrape": "true",
-		"prometheus.io/port":   "http",
-		"prometheus.io/path":   "/metrics",
+
+	var annotations map[string]string
+	var ports []corev1.ServicePort
+
+	if rf.Spec.Redis.DisableIPMode {
+		// Headless service (IP mode disabled): include Redis port, and exporter port if enabled
+		ports = []corev1.ServicePort{
+			{
+				Name:       "redis",
+				Port:       rf.Spec.Redis.Port,
+				TargetPort: intstr.FromString("redis"),
+				Protocol:   corev1.ProtocolTCP,
+			},
+		}
+		if rf.Spec.Redis.Exporter.Enabled {
+			ports = append(ports, corev1.ServicePort{
+				Port:     exporterPort,
+				Protocol: corev1.ProtocolTCP,
+				Name:     exporterPortName,
+			})
+			defaultAnnotations := map[string]string{
+				"prometheus.io/scrape": "true",
+				"prometheus.io/port":   "http",
+				"prometheus.io/path":   "/metrics",
+			}
+			annotations = util.MergeLabels(defaultAnnotations, rf.Spec.Redis.ServiceAnnotations)
+		} else {
+			annotations = rf.Spec.Redis.ServiceAnnotations
+		}
+	} else {
+		// Exporter-only service (non-headless)
+		defaultAnnotations := map[string]string{
+			"prometheus.io/scrape": "true",
+			"prometheus.io/port":   "http",
+			"prometheus.io/path":   "/metrics",
+		}
+		annotations = util.MergeLabels(defaultAnnotations, rf.Spec.Redis.ServiceAnnotations)
+		ports = []corev1.ServicePort{
+			{
+				Port:     exporterPort,
+				Protocol: corev1.ProtocolTCP,
+				Name:     exporterPortName,
+			},
+		}
 	}
-	annotations := util.MergeLabels(defaultAnnotations, rf.Spec.Redis.ServiceAnnotations)
 
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
@@ -108,14 +147,8 @@ func generateRedisService(rf *redisfailoverv1.RedisFailover, labels map[string]s
 		Spec: corev1.ServiceSpec{
 			Type:      corev1.ServiceTypeClusterIP,
 			ClusterIP: corev1.ClusterIPNone,
-			Ports: []corev1.ServicePort{
-				{
-					Port:     exporterPort,
-					Protocol: corev1.ProtocolTCP,
-					Name:     exporterPortName,
-				},
-			},
-			Selector: selectorLabels,
+			Ports:     ports,
+			Selector:  selectorLabels,
 		},
 	}
 }

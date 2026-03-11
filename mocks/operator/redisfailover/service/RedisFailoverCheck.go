@@ -5,6 +5,7 @@ package mocks
 import (
 	mock "github.com/stretchr/testify/mock"
 
+	corev1 "k8s.io/api/core/v1"
 	time "time"
 
 	v1 "github.com/freshworks/redis-operator/api/redisfailover/v1"
@@ -430,6 +431,36 @@ func (_m *RedisFailoverCheck) GetRedisesSlavesPods(rFailover *v1.RedisFailover) 
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(*v1.RedisFailover) error); ok {
+		r1 = rf(rFailover)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// GetRedisesPods provides a mock function with given fields: rFailover
+func (_m *RedisFailoverCheck) GetRedisesPods(rFailover *v1.RedisFailover) (*corev1.PodList, error) {
+	ret := _m.Called(rFailover)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRedisesPods")
+	}
+
+	var r0 *corev1.PodList
+	var r1 error
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover) (*corev1.PodList, error)); ok {
+		return rf(rFailover)
+	}
+	if rf, ok := ret.Get(0).(func(*v1.RedisFailover) *corev1.PodList); ok {
+		r0 = rf(rFailover)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*corev1.PodList)
 		}
 	}
 

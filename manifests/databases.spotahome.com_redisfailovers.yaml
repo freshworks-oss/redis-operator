@@ -6836,6 +6836,8 @@ spec:
                     type: integer
                   preventMasterEviction:
                     type: boolean
+                  disableIPMode:
+                    type: boolean
                   priorityClassName:
                     type: string
                   replicas:

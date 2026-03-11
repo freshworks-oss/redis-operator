@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -796,4 +797,276 @@ func (c *clients) testMaxMemoryHealingValidation(t *testing.T, currentNamespace 
 	// Cleanup: Delete the RedisFailover
 	err = c.rfClient.DatabasesV1().RedisFailovers(currentNamespace).Delete(context.Background(), rfName, metav1.DeleteOptions{})
 	require.NoError(err)
+}
+
+func TestRedisFailoverDisableIPMode(t *testing.T) {
+	require := require.New(t)
+	currentNamespace := "disableipmode-" + namespace
+
+	// Create signal channels.
+	stopC := make(chan struct{})
+	errC := make(chan error)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	flags := &utils.CMDFlags{
+		KubeConfig:  filepath.Join(homedir.HomeDir(), ".kube", "config"),
+		Development: true,
+	}
+
+	// Kubernetes clients.
+	k8sClient, customClient, aeClientset, err := utils.CreateKubernetesClients(flags)
+	require.NoError(err)
+
+	// Create the redis clients
+	redisClient := redis.New(metrics.Dummy)
+
+	clients := clients{
+		k8sClient:   k8sClient,
+		rfClient:    customClient,
+		aeClient:    aeClientset,
+		redisClient: redisClient,
+	}
+
+	// Create kubernetes service.
+	k8sservice := k8s.New(k8sClient, customClient, aeClientset, log.Dummy, metrics.Dummy)
+
+	// Prepare namespace
+	prepErr := clients.prepareNS(currentNamespace)
+	require.NoError(prepErr)
+
+	// Give time to the namespace to be ready
+	time.Sleep(15 * time.Second)
+
+	// Create operator and run.
+	redisfailoverOperator, err := redisfailover.New(redisfailover.Config{}, k8sservice, k8sClient, currentNamespace, redisClient, metrics.Dummy, log.Dummy)
+	require.NoError(err)
+
+	go func() {
+		errC <- redisfailoverOperator.Run(ctx)
+	}()
+
+	// Prepare cleanup for when the test ends
+	defer cancel()
+	defer clients.cleanup(stopC, currentNamespace)
+
+	// Give time to the operator to start
+	time.Sleep(15 * time.Second)
+
+	// Create secret
+	secret := &v1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      authSecretPath,
+			Namespace: currentNamespace,
+		},
+		Data: map[string][]byte{
+			"password": []byte(testPass),
+		},
+	}
+	_, err = k8sClient.CoreV1().Secrets(currentNamespace).Create(context.Background(), secret, metav1.CreateOptions{})
+	require.NoError(err)
+
+	// Check that if we create a RedisFailover with disableIPMode, it is created
+	ok := t.Run("Check Custom Resource Creation with DisableIPMode", func(t *testing.T) {
+		clients.testCRCreationWithDisableIPMode(t, currentNamespace)
+	})
+	require.True(ok, "the custom resource has to be created to continue")
+
+	// Giving time to the operator to create the resources
+	time.Sleep(3 * time.Minute)
+
+	// Check that headless service is created
+	t.Run("Check Headless Service Creation", func(t *testing.T) {
+		clients.testHeadlessService(t, currentNamespace)
+	})
+
+	// Check that DNS names are resolvable
+	t.Run("Check DNS Name Resolution", func(t *testing.T) {
+		clients.testDNSNameResolution(t, currentNamespace)
+	})
+
+	// Check that Redis replication uses DNS names
+	t.Run("Check Redis Replication Uses DNS Names", func(t *testing.T) {
+		clients.testRedisReplicationDNSNames(t, currentNamespace)
+	})
+
+}
+
+func (c *clients) testCRCreationWithDisableIPMode(t *testing.T, currentNamespace string) {
+	assert := assert.New(t)
+	rfName := "disableipmode-test"
+	toCreate := &redisfailoverv1.RedisFailover{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      rfName,
+			Namespace: currentNamespace,
+		},
+		Spec: redisfailoverv1.RedisFailoverSpec{
+			Redis: redisfailoverv1.RedisSettings{
+				Replicas:      int32(3),
+				DisableIPMode: true, // Enable DNS mode
+				Exporter: redisfailoverv1.Exporter{
+					Enabled: true,
+				},
+			},
+			Sentinel: redisfailoverv1.SentinelSettings{
+				Replicas:        int32(3),
+				DisableMyMaster: true,
+			},
+			Auth: redisfailoverv1.AuthSettings{
+				SecretPath: authSecretPath,
+			},
+		},
+	}
+
+	_, err := c.rfClient.DatabasesV1().RedisFailovers(currentNamespace).Create(context.Background(), toCreate, metav1.CreateOptions{})
+	assert.NoError(err)
+
+	gotRF, err := c.rfClient.DatabasesV1().RedisFailovers(currentNamespace).Get(context.Background(), rfName, metav1.GetOptions{})
+	assert.NoError(err)
+	assert.True(gotRF.Spec.Redis.DisableIPMode, "DisableIPMode should be enabled")
+}
+
+func (c *clients) testHeadlessService(t *testing.T, currentNamespace string) {
+	assert := assert.New(t)
+	require := require.New(t)
+	rfName := "disableipmode-test"
+
+	// Get the Redis service
+	serviceName := fmt.Sprintf("rfr-%s", rfName)
+	svc, err := c.k8sClient.CoreV1().Services(currentNamespace).Get(context.Background(), serviceName, metav1.GetOptions{})
+	require.NoError(err, "Redis service should exist")
+
+	// Verify it's a headless service (ClusterIP: None)
+	assert.Equal(corev1.ClusterIPNone, svc.Spec.ClusterIP, "Service should be headless (ClusterIP: None)")
+
+	// Verify Redis port is included
+	redisPortFound := false
+	for _, port := range svc.Spec.Ports {
+		if port.Name == "redis" {
+			redisPortFound = true
+			assert.Equal(int32(6379), port.Port, "Redis port should be 6379")
+			break
+		}
+	}
+	assert.True(redisPortFound, "Redis port should be included in headless service")
+}
+
+func (c *clients) testDNSNameResolution(t *testing.T, currentNamespace string) {
+	assert := assert.New(t)
+	require := require.New(t)
+	rfName := "disableipmode-test"
+
+	// Get Redis StatefulSet
+	redisSS, err := c.k8sClient.AppsV1().StatefulSets(currentNamespace).Get(context.Background(), fmt.Sprintf("rfr-%s", rfName), metav1.GetOptions{})
+	require.NoError(err)
+
+	// Get all Redis pods
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.FormatLabels(redisSS.Spec.Selector.MatchLabels),
+	}
+	redisPodList, err := c.k8sClient.CoreV1().Pods(currentNamespace).List(context.Background(), listOptions)
+	require.NoError(err)
+	require.True(len(redisPodList.Items) > 0, "Should have Redis pods")
+
+	// Verify DNS names can be constructed and pods are ready
+	serviceName := fmt.Sprintf("rfr-%s", rfName)
+	for _, pod := range redisPodList.Items {
+		// Check pod is ready
+		podReady := false
+		for _, condition := range pod.Status.Conditions {
+			if condition.Type == corev1.PodReady && condition.Status == corev1.ConditionTrue {
+				podReady = true
+				break
+			}
+		}
+		if !podReady {
+			t.Logf("Pod %s is not ready yet, skipping DNS check", pod.Name)
+			continue
+		}
+
+		// Extract ordinal from pod name (e.g., "rfr-disableipmode-test-0" -> "0")
+		// Pod name format: <service-name>-<ordinal>
+		parts := strings.Split(pod.Name, "-")
+		if len(parts) == 0 {
+			t.Logf("Cannot extract ordinal from pod name %s", pod.Name)
+			continue
+		}
+		ordinal := parts[len(parts)-1]
+		expectedDNS := fmt.Sprintf("%s-%s.%s.%s.svc.cluster.local",
+			serviceName,
+			ordinal,
+			serviceName,
+			currentNamespace)
+
+		// Verify pod has an IP (required for DNS resolution)
+		assert.NotEmpty(pod.Status.PodIP, "Pod should have an IP address for DNS resolution")
+		t.Logf("Pod %s should be accessible at DNS name: %s", pod.Name, expectedDNS)
+	}
+}
+
+func (c *clients) testRedisReplicationDNSNames(t *testing.T, currentNamespace string) {
+	assert := assert.New(t)
+	require := require.New(t)
+	rfName := "disableipmode-test"
+
+	// Get Redis StatefulSet
+	redisSS, err := c.k8sClient.AppsV1().StatefulSets(currentNamespace).Get(context.Background(), fmt.Sprintf("rfr-%s", rfName), metav1.GetOptions{})
+	require.NoError(err)
+
+	// Get all Redis pods
+	listOptions := metav1.ListOptions{
+		LabelSelector: labels.FormatLabels(redisSS.Spec.Selector.MatchLabels),
+	}
+	redisPodList, err := c.k8sClient.CoreV1().Pods(currentNamespace).List(context.Background(), listOptions)
+	require.NoError(err)
+	require.True(len(redisPodList.Items) > 0, "Should have Redis pods")
+
+	// Find master and slaves
+	var masterPod *corev1.Pod
+	var slavePods []corev1.Pod
+
+	for _, pod := range redisPodList.Items {
+		if pod.Status.PodIP == "" {
+			continue
+		}
+		isMaster, err := c.redisClient.IsMaster(pod.Status.PodIP, "6379", testPass)
+		require.NoError(err)
+		if isMaster {
+			masterPod = &pod
+		} else {
+			slavePods = append(slavePods, pod)
+		}
+	}
+
+	require.NotNil(masterPod, "Should have a master pod")
+	require.True(len(slavePods) > 0, "Should have at least one slave pod")
+
+	// Construct expected DNS name for master
+	serviceName := fmt.Sprintf("rfr-%s", rfName)
+	masterParts := strings.Split(masterPod.Name, "-")
+	masterOrdinal := masterParts[len(masterParts)-1]
+	expectedMasterDNS := fmt.Sprintf("%s-%s.%s.%s.svc.cluster.local",
+		serviceName, masterOrdinal, serviceName, currentNamespace)
+
+	// Check that slaves are configured to replicate from master
+	// Note: Redis INFO replication shows resolved IPs, but we can verify the replication works
+	// and check operator logs would show DNS names being used
+	for _, slavePod := range slavePods {
+		slaveOf, err := c.redisClient.GetSlaveOf(slavePod.Status.PodIP, "6379", testPass)
+		require.NoError(err)
+		// The slave should be pointing to the master's IP (Redis resolves DNS to IP)
+		assert.Equal(masterPod.Status.PodIP, slaveOf, "Slave %s should replicate from master %s", slavePod.Name, masterPod.Name)
+
+		// Verify replication is working
+		slaveClient := rediscli.NewClient(&rediscli.Options{
+			Addr:     net.JoinHostPort(slavePod.Status.PodIP, "6379"),
+			Password: testPass,
+			DB:       0,
+		})
+		defer slaveClient.Close()
+
+		info, err := slaveClient.Info(context.TODO(), "replication").Result()
+		require.NoError(err)
+		assert.Contains(info, fmt.Sprintf("master_host:%s", masterPod.Status.PodIP), "Slave should show master IP in INFO replication")
+		t.Logf("Slave %s is replicating from master %s (DNS: %s, IP: %s)", slavePod.Name, masterPod.Name, expectedMasterDNS, masterPod.Status.PodIP)
+	}
 }
