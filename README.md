@@ -5,6 +5,15 @@
 
 Redis Operator creates/configures/manages redis-failovers atop Kubernetes.
 
+This project is licensed under the [Apache License 2.0](LICENSE).
+
+## Community
+
+- [Contributing](CONTRIBUTING.md) — how to build, test, and open pull requests.
+- [Security policy](SECURITY.md) — supported versions and how to report vulnerabilities.
+- [Maintainers](MAINTAINERS.md) — maintainer roles and how to become one.
+- [AGENTS.md](AGENTS.md) — repository layout, CI, and pointers for tooling and AI assistants.
+
 **API group vs project:** The `RedisFailover` CRD is served under the API group `databases.spotahome.com` (unchanged for compatibility). This fork is developed under **Freshworks**; clone URLs, `raw.githubusercontent.com` links, and container images use **`freshworks`** (e.g. `ghcr.io/freshworks/redis-operator`). Renaming the API group would be a breaking change for existing clusters and is not part of this project’s scope.
 
 ## Requirements

@@ -18,7 +18,7 @@ jobs:
       - name: Setup golang
         uses: actions/setup-go@v4
         with:
-          go-version: "1.24.x"
+          go-version-file: go.mod
       - name: Docker Login
         uses: docker/login-action@v3
         with:

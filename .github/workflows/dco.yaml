@@ -1,0 +1,44 @@
+name: DCO
+
+# Enforces Developer Certificate of Origin (Signed-off-by) on every commit in a PR.
+# See CONTRIBUTING.md. Dependabot commits are exempt (bot identity; org may still require squash with sign-off).
+
+on:
+  pull_request:
+    branches:
+      - master
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    if: ${{ github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify Signed-off-by (DCO)
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          missing=0
+          while IFS= read -r sha; do
+            [[ -z "${sha}" ]] && continue
+            msg=$(git log -1 --format=%B "$sha")
+            if ! printf '%s\n' "$msg" | grep -qE '^Signed-off-by:'; then
+              subj=$(git log -1 --format=%s "$sha")
+              echo "::error::Commit ${sha} (${subj}) is missing a Signed-off-by trailer. Use: git commit -s --amend"
+              missing=1
+            fi
+          done < <(git rev-list --no-merges "${BASE_SHA}..${HEAD_SHA}")
+          if [[ "$missing" -ne 0 ]]; then
+            echo "All commits must include a line matching: Signed-off-by: Name <email>"
+            echo "See CONTRIBUTING.md and https://developercertificate.org/"
+            exit 1
+          fi
