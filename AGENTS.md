@@ -42,7 +42,7 @@ make test                  # full local suite (heavy)
 
 **Code generation:** `Makefile` targets `update-codegen` and `generate-crd` (Dockerized). Run after API type changes.
 
-**Container workflows (Podman or Docker):** `make docker-build`, `make shell`, `make build`, `make image` (see `CONTAINER_RUNTIME` in the `Makefile`).
+**Container workflows (Podman or Docker):** `make docker-build`, `make shell`, `make build`, `make image` (see `CONTAINER_ENGINE` in the `Makefile`).
 
 ## Contribution requirements (summary)
 
