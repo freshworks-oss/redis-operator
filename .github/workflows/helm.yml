@@ -1,50 +1,40 @@
 name: Release Charts
 
+# Publish the Helm chart to GHCR as OCI only (no chart-releaser, no gh-pages).
 on:
   push:
     branches:
       - master
+    # Only chart content changes should publish; workflow-only commits avoid duplicate helm push of the same version.
+    paths:
+      - "charts/**"
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
-  release:
+  oci-chart:
+    name: Package and push chart to GHCR
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Configure Git
-        run: |
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "${GITHUB_ACTOR}@users.noreply.github.com"
 
       - name: Install Helm
-        uses: azure/setup-helm@v4 
+        uses: azure/setup-helm@v4
         with:
           version: v3.12.3
 
-      - name: Release
-        uses: helm/chart-releaser-action@v1.5.0
-        id: cr
-        with:
-          charts_dir: charts
-          config: charts/chart-release-config.yaml
-        env:
-          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-
-      # setup access to container registry
-      - name: Setup access to container registry
-        uses: docker/login-action@v3
-        if: ${{ steps.cr.outputs.changed_charts }}
-        with:
-          registry: ghcr.io
-          username: ${{ github.repository_owner }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      # push charts to container registry
-      - name: Push charts to container registry
-        if: ${{ steps.cr.outputs.changed_charts }}
+      # helm push uses Helm's OCI client; configure auth via helm registry login (not only docker).
+      - name: Helm registry login to GHCR
         run: |
-          for CHART in .cr-release-packages/*; do
-            if [ -z "${CHART:-}" ]; then break; fi
-            helm push "${CHART}" oci://ghcr.io/${{ github.repository_owner }}/charts
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.repository_owner }}" --password-stdin
+
+      - name: Package and push Helm chart to GHCR
+        run: |
+          set -euo pipefail
+          out="$(mktemp -d)"
+          helm package charts/redisoperator --destination "${out}"
+          for tgz in "${out}"/*.tgz; do
+            helm push "${tgz}" "oci://ghcr.io/${{ github.repository_owner }}/charts"
           done
