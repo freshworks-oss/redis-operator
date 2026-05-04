@@ -5,6 +5,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// DatabaseEngine selects which Redis-compatible engine backs this failover.
+// Omit or use Redis for standard Redis. Use Valkey for Valkey images and binaries.
+type DatabaseEngine string
+
+const (
+	// DatabaseEngineRedis is the default when databaseEngine is omitted or empty.
+	DatabaseEngineRedis  DatabaseEngine = "Redis"
+	DatabaseEngineValkey DatabaseEngine = "Valkey"
+)
+
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
@@ -22,6 +32,10 @@ type RedisFailover struct {
 
 // RedisFailoverSpec represents a Redis failover spec
 type RedisFailoverSpec struct {
+	// DatabaseEngine selects Redis or Valkey. Omitted or empty means Redis (historical behavior).
+	// +optional
+	// +kubebuilder:validation:Enum=Redis;Valkey
+	DatabaseEngine DatabaseEngine     `json:"databaseEngine,omitempty"`
 	Redis          RedisSettings      `json:"redis,omitempty"`
 	Sentinel       SentinelSettings   `json:"sentinel,omitempty"`
 	Auth           AuthSettings       `json:"auth,omitempty"`

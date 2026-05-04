@@ -16,6 +16,17 @@ func (r *RedisFailover) Validate() error {
 		return fmt.Errorf("name length can't be higher than %d", maxNameLength)
 	}
 
+	switch r.Spec.DatabaseEngine {
+	case "", DatabaseEngineRedis, DatabaseEngineValkey:
+	default:
+		return fmt.Errorf("invalid databaseEngine %q, must be Redis, Valkey, or omitted", r.Spec.DatabaseEngine)
+	}
+
+	defaultImageForEngine := defaultImage
+	if r.Spec.DatabaseEngine == DatabaseEngineValkey {
+		defaultImageForEngine = defaultValkeyImage
+	}
+
 	if r.Bootstrapping() {
 		if r.Spec.BootstrapNode.Host == "" {
 			return errors.New("BootstrapNode must include a host when provided")
@@ -30,11 +41,11 @@ func (r *RedisFailover) Validate() error {
 	}
 
 	if r.Spec.Redis.Image == "" {
-		r.Spec.Redis.Image = defaultImage
+		r.Spec.Redis.Image = defaultImageForEngine
 	}
 
 	if r.Spec.Sentinel.Image == "" {
-		r.Spec.Sentinel.Image = defaultImage
+		r.Spec.Sentinel.Image = defaultImageForEngine
 	}
 
 	if r.Spec.Redis.Replicas <= 0 {
