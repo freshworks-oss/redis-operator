@@ -34,4 +34,6 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
       
       - name: Build and push multi-arch Docker image
-        run: VERSION=${{ steps.get_version.outputs.VERSION }} make image-release 
+        env:
+          CONTAINER_ENGINE: docker
+        run: VERSION=${{ steps.get_version.outputs.VERSION }} make image-release

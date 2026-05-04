@@ -101,7 +101,10 @@ image: deps-development
 	-f $(APP_DIR)/Dockerfile \
 	.
 
-# Multi-arch push needs `buildx` (Docker Buildx, or Podman 4.3+ with buildx support).
+# Multi-arch push needs a `buildx` implementation that supports `--push`.
+# The release workflow forces Docker because GitHub-hosted runners can have
+# Podman installed ahead of Docker in PATH, but Podman's `buildx` may not
+# support the flags used by this target.
 .PHONY: image-release
 image-release:
 	$(CONTAINER_ENGINE) buildx build \
