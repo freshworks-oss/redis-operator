@@ -72,6 +72,10 @@ func (r *RedisFailoverHandler) Handle(_ context.Context, obj runtime.Object) err
 		return err
 	}
 
+	for _, hint := range redisfailoverv1.DatabaseEngineImageMismatchHints(rf) {
+		r.logger.Warnf("RedisFailover %s/%s databaseEngine/image hint (heuristic, non-blocking): %s", rf.Namespace, rf.Name, hint)
+	}
+
 	// Create owner refs so the objects manager by this handler have ownership to the
 	// received RF.
 	oRefs := r.createOwnerReferences(rf)
