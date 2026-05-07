@@ -103,23 +103,22 @@ image: deps-development
 	-f $(APP_DIR)/Dockerfile \
 	.
 
-# Multi-arch registry push uses Docker Buildx. Podman does not support the same
-# `buildx build --push` flow; with Podman we build for the current architecture and
-# push tags with `podman push` (same as `docker push`).
+# Multi-arch registry push:
+# - Docker uses Buildx with `--push`.
+# - Podman uses manifest lists (`podman build --manifest` + `podman manifest push --all`).
 .PHONY: image-release
 ifneq ($(IS_PODMAN),)
 image-release:
-	@echo ">> image-release: using Podman (single-arch build + podman push). For multi-arch use Docker: make CONTAINER_ENGINE=docker image-release"
+	@echo ">> image-release: using Podman manifest-based multi-arch build and push"
 	$(CONTAINER_ENGINE) build \
+	--platform linux/amd64,linux/arm64,linux/arm/v7 \
+	--manifest $(REPOSITORY):$(TAG) \
 	--build-arg VERSION=$(TAG) \
-	-t $(REPOSITORY):latest \
-	-t $(REPOSITORY):$(COMMIT) \
-	-t $(REPOSITORY):$(TAG) \
 	-f $(APP_DIR)/Dockerfile \
 	.
-	$(CONTAINER_ENGINE) push $(REPOSITORY):latest
-	$(CONTAINER_ENGINE) push $(REPOSITORY):$(COMMIT)
-	$(CONTAINER_ENGINE) push $(REPOSITORY):$(TAG)
+	$(CONTAINER_ENGINE) manifest push --all $(REPOSITORY):$(TAG) docker://$(REPOSITORY):$(TAG)
+	$(CONTAINER_ENGINE) manifest push --all $(REPOSITORY):$(TAG) docker://$(REPOSITORY):$(COMMIT)
+	$(CONTAINER_ENGINE) manifest push --all $(REPOSITORY):$(TAG) docker://$(REPOSITORY):latest
 else
 image-release:
 	$(CONTAINER_ENGINE) buildx build \
