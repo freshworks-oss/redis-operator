@@ -3,7 +3,9 @@
 [![Build Status](https://github.com/freshworks/redis-operator/actions/workflows/ci.yaml/badge.svg?branch=master)](https://github.com/freshworks/redis-operator)
 [![Go Report Card](https://goreportcard.com/badge/github.com/freshworks/redis-operator)](https://goreportcard.com/report/github.com/freshworks/redis-operator)
 
-Redis Operator creates/configures/manages redis-failovers atop Kubernetes.
+Redis Operator creates/configures/manages highly available Redis or Valkey failovers with Sentinel automatic failover atop Kubernetes.
+
+- Supports both **Redis** and **Valkey** engines (selectable via `spec.engine`).
 
 This project is licensed under the [Apache License 2.0](LICENSE).
 
