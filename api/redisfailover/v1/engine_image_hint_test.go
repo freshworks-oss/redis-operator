@@ -22,7 +22,7 @@ func TestDatabaseEngineImageMismatchHints(t *testing.T) {
 			name: "defaults only no explicit images",
 			rf: &RedisFailover{
 				Spec: RedisFailoverSpec{
-					DatabaseEngine: DatabaseEngineValkey,
+					Engine: ValkeyEngine,
 				},
 			},
 			want: 0,
@@ -31,7 +31,7 @@ func TestDatabaseEngineImageMismatchHints(t *testing.T) {
 			name: "Valkey engine redis images",
 			rf: &RedisFailover{
 				Spec: RedisFailoverSpec{
-					DatabaseEngine: DatabaseEngineValkey,
+					Engine: ValkeyEngine,
 					Redis: RedisSettings{
 						Image: "redis:7-alpine",
 					},
@@ -46,7 +46,7 @@ func TestDatabaseEngineImageMismatchHints(t *testing.T) {
 			name: "Valkey engine matching images",
 			rf: &RedisFailover{
 				Spec: RedisFailoverSpec{
-					DatabaseEngine: DatabaseEngineValkey,
+					Engine: ValkeyEngine,
 					Redis: RedisSettings{
 						Image: "valkey/valkey:8",
 					},
@@ -61,7 +61,7 @@ func TestDatabaseEngineImageMismatchHints(t *testing.T) {
 			name: "Redis engine valkey images",
 			rf: &RedisFailover{
 				Spec: RedisFailoverSpec{
-					DatabaseEngine: DatabaseEngineRedis,
+					Engine: RedisEngine,
 					Redis: RedisSettings{
 						Image: "valkey/valkey:8",
 					},
@@ -87,7 +87,7 @@ func TestDatabaseEngineImageMismatchHints(t *testing.T) {
 			name: "Redis engine custom image without redis or valkey in name",
 			rf: &RedisFailover{
 				Spec: RedisFailoverSpec{
-					DatabaseEngine: DatabaseEngineRedis,
+					Engine: RedisEngine,
 					Redis: RedisSettings{
 						Image: "myregistry.io/team/cache-runner:v2",
 					},
@@ -102,7 +102,7 @@ func TestDatabaseEngineImageMismatchHints(t *testing.T) {
 			name: "Redis engine explicit redis image no hints",
 			rf: &RedisFailover{
 				Spec: RedisFailoverSpec{
-					DatabaseEngine: DatabaseEngineRedis,
+					Engine: RedisEngine,
 					Redis: RedisSettings{
 						Image: "redis:7-alpine",
 					},

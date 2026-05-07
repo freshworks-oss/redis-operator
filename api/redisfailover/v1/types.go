@@ -10,9 +10,9 @@ import (
 type DatabaseEngine string
 
 const (
-	// DatabaseEngineRedis is the default when databaseEngine is omitted or empty.
-	DatabaseEngineRedis  DatabaseEngine = "Redis"
-	DatabaseEngineValkey DatabaseEngine = "Valkey"
+	// RedisEngine is the default when engine is omitted or empty.
+	RedisEngine  DatabaseEngine = "Redis"
+	ValkeyEngine DatabaseEngine = "Valkey"
 )
 
 // +genclient
@@ -32,10 +32,10 @@ type RedisFailover struct {
 
 // RedisFailoverSpec represents a Redis failover spec
 type RedisFailoverSpec struct {
-	// DatabaseEngine selects Redis or Valkey. Omitted or empty means Redis (historical behavior).
+	// Engine selects Redis or Valkey. Omitted or empty means Redis (historical behavior).
 	// +optional
 	// +kubebuilder:validation:Enum=Redis;Valkey
-	DatabaseEngine DatabaseEngine     `json:"databaseEngine,omitempty"`
+	Engine         DatabaseEngine     `json:"engine,omitempty"`
 	Redis          RedisSettings      `json:"redis,omitempty"`
 	Sentinel       SentinelSettings   `json:"sentinel,omitempty"`
 	Auth           AuthSettings       `json:"auth,omitempty"`

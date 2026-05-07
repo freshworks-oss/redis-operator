@@ -11,7 +11,7 @@ func TestValidate(t *testing.T) {
 	tests := []struct {
 		name                   string
 		rfName                 string
-		rfDatabaseEngine       DatabaseEngine
+		rfEngine               DatabaseEngine
 		rfBootstrapNode        *BootstrapSettings
 		rfRedisCustomConfig    []string
 		rfSentinelCustomConfig []string
@@ -28,15 +28,15 @@ func TestValidate(t *testing.T) {
 			expectedError: "name length can't be higher than 48",
 		},
 		{
-			name:             "errors on invalid databaseEngine",
+			name:             "errors on invalid engine",
 			rfName:           "test",
-			rfDatabaseEngine: DatabaseEngine("Other"),
-			expectedError:    "invalid databaseEngine",
+			rfEngine:         DatabaseEngine("Other"),
+			expectedError:    "invalid engine",
 		},
 		{
 			name:             "Valkey engine uses default Valkey image",
 			rfName:           "test",
-			rfDatabaseEngine: DatabaseEngineValkey,
+			rfEngine:         ValkeyEngine,
 		},
 		{
 			name:                   "SentinelCustomConfig provided",
@@ -83,7 +83,7 @@ func TestValidate(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			assert := assert.New(t)
 			rf := generateRedisFailover(test.rfName, test.rfBootstrapNode)
-			rf.Spec.DatabaseEngine = test.rfDatabaseEngine
+			rf.Spec.Engine = test.rfEngine
 			rf.Spec.Redis.CustomConfig = test.rfRedisCustomConfig
 			rf.Spec.Sentinel.CustomConfig = test.rfSentinelCustomConfig
 
@@ -93,7 +93,7 @@ func TestValidate(t *testing.T) {
 				assert.NoError(err)
 
 				defaultImg := defaultImage
-				if test.rfDatabaseEngine == DatabaseEngineValkey {
+				if test.rfEngine == ValkeyEngine {
 					defaultImg = defaultValkeyImage
 				}
 
@@ -119,7 +119,7 @@ func TestValidate(t *testing.T) {
 						Namespace: "namespace",
 					},
 					Spec: RedisFailoverSpec{
-						DatabaseEngine: test.rfDatabaseEngine,
+						Engine: test.rfEngine,
 						Redis: RedisSettings{
 							Image:                    defaultImg,
 							Replicas:                 defaultRedisNumber,

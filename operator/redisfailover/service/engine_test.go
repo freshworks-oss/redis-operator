@@ -18,8 +18,8 @@ func TestEngineFor(t *testing.T) {
 		auth   string
 	}{
 		{"omitted is redis", "", "redis-server", "redis-cli", "REDISCLI_AUTH"},
-		{"redis", redisfailoverv1.DatabaseEngineRedis, "redis-server", "redis-cli", "REDISCLI_AUTH"},
-		{"valkey", redisfailoverv1.DatabaseEngineValkey, "valkey-server", "valkey-cli", "VALKEYCLI_AUTH"},
+		{"redis", redisfailoverv1.RedisEngine, "redis-server", "redis-cli", "REDISCLI_AUTH"},
+		{"valkey", redisfailoverv1.ValkeyEngine, "valkey-server", "valkey-cli", "VALKEYCLI_AUTH"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -27,7 +27,7 @@ func TestEngineFor(t *testing.T) {
 			rf := &redisfailoverv1.RedisFailover{
 				ObjectMeta: metav1.ObjectMeta{Name: "x"},
 				Spec: redisfailoverv1.RedisFailoverSpec{
-					DatabaseEngine: tc.engine,
+					Engine: tc.engine,
 				},
 			}
 			eng := EngineFor(rf)
@@ -43,13 +43,13 @@ func TestGetRedisCommandUsesEngine(t *testing.T) {
 	rf := &redisfailoverv1.RedisFailover{
 		ObjectMeta: metav1.ObjectMeta{Name: "x"},
 		Spec: redisfailoverv1.RedisFailoverSpec{
-			DatabaseEngine: redisfailoverv1.DatabaseEngineValkey,
+			Engine: redisfailoverv1.ValkeyEngine,
 		},
 	}
 	cmd := getRedisCommand(rf, EngineFor(rf))
 	assert.Equal(t, []string{"valkey-server", "/redis/redis.conf"}, cmd)
 
-	rf.Spec.DatabaseEngine = redisfailoverv1.DatabaseEngineRedis
+	rf.Spec.Engine = redisfailoverv1.RedisEngine
 	cmd = getRedisCommand(rf, EngineFor(rf))
 	assert.Equal(t, []string{"redis-server", "/redis/redis.conf"}, cmd)
 }
@@ -59,7 +59,7 @@ func TestGetSentinelCommandUsesEngine(t *testing.T) {
 	rf := &redisfailoverv1.RedisFailover{
 		ObjectMeta: metav1.ObjectMeta{Name: "x"},
 		Spec: redisfailoverv1.RedisFailoverSpec{
-			DatabaseEngine: redisfailoverv1.DatabaseEngineValkey,
+			Engine: redisfailoverv1.ValkeyEngine,
 		},
 	}
 	cmd := getSentinelCommand(rf, EngineFor(rf))

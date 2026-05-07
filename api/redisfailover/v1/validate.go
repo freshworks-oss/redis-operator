@@ -16,14 +16,14 @@ func (r *RedisFailover) Validate() error {
 		return fmt.Errorf("name length can't be higher than %d", maxNameLength)
 	}
 
-	switch r.Spec.DatabaseEngine {
-	case "", DatabaseEngineRedis, DatabaseEngineValkey:
+	switch r.Spec.Engine {
+	case "", RedisEngine, ValkeyEngine:
 	default:
-		return fmt.Errorf("invalid databaseEngine %q, must be Redis, Valkey, or omitted", r.Spec.DatabaseEngine)
+		return fmt.Errorf("invalid engine %q, must be Redis, Valkey, or omitted", r.Spec.Engine)
 	}
 
 	defaultImageForEngine := defaultImage
-	if r.Spec.DatabaseEngine == DatabaseEngineValkey {
+	if r.Spec.Engine == ValkeyEngine {
 		defaultImageForEngine = defaultValkeyImage
 	}
 

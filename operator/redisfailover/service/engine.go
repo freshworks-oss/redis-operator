@@ -26,8 +26,8 @@ func (valkeyEngine) CLIAuthEnvName() string { return "VALKEYCLI_AUTH" }
 
 // EngineFor returns the engine implementation for pod generation. Empty or Redis uses Redis binaries; Valkey uses Valkey binaries.
 func EngineFor(rf *redisfailoverv1.RedisFailover) DatabaseEngineProvider {
-	switch rf.Spec.DatabaseEngine {
-	case redisfailoverv1.DatabaseEngineValkey:
+	switch rf.Spec.Engine {
+	case redisfailoverv1.ValkeyEngine:
 		return valkeyEngine{}
 	default:
 		return redisEngine{}

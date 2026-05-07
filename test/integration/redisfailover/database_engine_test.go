@@ -30,7 +30,7 @@ const (
 	valkeyIntegrationRFName    = "testing-valkey"
 )
 
-// TestRedisFailoverValkeyDatabaseEngine exercises spec.databaseEngine=Valkey end-to-end against a real cluster:
+// TestRedisFailoverValkeyDatabaseEngine exercises spec.engine=Valkey end-to-end against a real cluster:
 // generated workloads use valkey-server / valkey-cli, auth and replication behave like the default Redis test.
 func TestRedisFailoverValkeyDatabaseEngine(t *testing.T) {
 	require := require.New(t)
@@ -135,7 +135,7 @@ func (c *clients) testValkeyCRCreation(t *testing.T, currentNamespace, rfName st
 			Labels:    map[string]string{rfOperatorGroupLabelKey: integrationTestGroupID},
 		},
 		Spec: redisfailoverv1.RedisFailoverSpec{
-			DatabaseEngine: redisfailoverv1.DatabaseEngineValkey,
+			Engine: redisfailoverv1.ValkeyEngine,
 			Redis: redisfailoverv1.RedisSettings{
 				Replicas: redisSize,
 				Exporter: redisfailoverv1.Exporter{
