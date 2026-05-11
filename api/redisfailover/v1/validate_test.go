@@ -11,6 +11,7 @@ func TestValidate(t *testing.T) {
 	tests := []struct {
 		name                   string
 		rfName                 string
+		rfEngine               DatabaseEngine
 		rfBootstrapNode        *BootstrapSettings
 		rfRedisCustomConfig    []string
 		rfSentinelCustomConfig []string
@@ -25,6 +26,17 @@ func TestValidate(t *testing.T) {
 			name:          "errors on too long of name",
 			rfName:        "some-super-absurdely-unnecessarily-long-name-that-will-most-definitely-fail",
 			expectedError: "name length can't be higher than 48",
+		},
+		{
+			name:             "errors on invalid engine",
+			rfName:           "test",
+			rfEngine:         DatabaseEngine("Other"),
+			expectedError:    "invalid engine",
+		},
+		{
+			name:             "Valkey engine uses default Valkey image",
+			rfName:           "test",
+			rfEngine:         ValkeyEngine,
 		},
 		{
 			name:                   "SentinelCustomConfig provided",
@@ -71,6 +83,7 @@ func TestValidate(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			assert := assert.New(t)
 			rf := generateRedisFailover(test.rfName, test.rfBootstrapNode)
+			rf.Spec.Engine = test.rfEngine
 			rf.Spec.Redis.CustomConfig = test.rfRedisCustomConfig
 			rf.Spec.Sentinel.CustomConfig = test.rfSentinelCustomConfig
 
@@ -78,6 +91,11 @@ func TestValidate(t *testing.T) {
 
 			if test.expectedError == "" {
 				assert.NoError(err)
+
+				defaultImg := defaultImage
+				if test.rfEngine == ValkeyEngine {
+					defaultImg = defaultValkeyImage
+				}
 
 				expectedRedisCustomConfig := []string{
 					"replica-priority 100",
@@ -101,8 +119,9 @@ func TestValidate(t *testing.T) {
 						Namespace: "namespace",
 					},
 					Spec: RedisFailoverSpec{
+						Engine: test.rfEngine,
 						Redis: RedisSettings{
-							Image:                    defaultImage,
+							Image:                    defaultImg,
 							Replicas:                 defaultRedisNumber,
 							Port:                     defaultRedisPort,
 							ReservedPodMemoryPercent: defaultReservedPodMemoryPercent,
@@ -112,7 +131,7 @@ func TestValidate(t *testing.T) {
 							CustomConfig: expectedRedisCustomConfig,
 						},
 						Sentinel: SentinelSettings{
-							Image:        defaultImage,
+							Image:        defaultImg,
 							Replicas:     defaultSentinelNumber,
 							CustomConfig: expectedSentinelCustomConfig,
 							Exporter: Exporter{
@@ -125,7 +144,7 @@ func TestValidate(t *testing.T) {
 				assert.Equal(expectedRF, rf)
 			} else {
 				if assert.Error(err) {
-					assert.Contains(test.expectedError, err.Error())
+					assert.Contains(err.Error(), test.expectedError)
 				}
 			}
 		})

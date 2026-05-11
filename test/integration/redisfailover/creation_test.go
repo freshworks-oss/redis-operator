@@ -357,25 +357,35 @@ func (c *clients) testCRCreation(t *testing.T, currentNamespace string, args ...
 	assert.Equal(toCreate.Spec, gotRF.Spec)
 }
 
-func (c *clients) testRedisStatefulSet(t *testing.T, currentNamespace string) {
+func redisFailoverName(rfName ...string) string {
+	if len(rfName) > 0 && rfName[0] != "" {
+		return rfName[0]
+	}
+	return name
+}
+
+func (c *clients) testRedisStatefulSet(t *testing.T, currentNamespace string, rfName ...string) {
 	assert := assert.New(t)
-	redisSS, err := c.k8sClient.AppsV1().StatefulSets(currentNamespace).Get(context.Background(), fmt.Sprintf("rfr-%s", name), metav1.GetOptions{})
+	rn := redisFailoverName(rfName...)
+	redisSS, err := c.k8sClient.AppsV1().StatefulSets(currentNamespace).Get(context.Background(), fmt.Sprintf("rfr-%s", rn), metav1.GetOptions{})
 	assert.NoError(err)
 	assert.Equal(redisSize, int32(redisSS.Status.Replicas))
 }
 
-func (c *clients) testSentinelDeployment(t *testing.T, currentNamespace string) {
+func (c *clients) testSentinelDeployment(t *testing.T, currentNamespace string, rfName ...string) {
 	assert := assert.New(t)
-	sentinelD, err := c.k8sClient.AppsV1().Deployments(currentNamespace).Get(context.Background(), fmt.Sprintf("rfs-%s", name), metav1.GetOptions{})
+	rn := redisFailoverName(rfName...)
+	sentinelD, err := c.k8sClient.AppsV1().Deployments(currentNamespace).Get(context.Background(), fmt.Sprintf("rfs-%s", rn), metav1.GetOptions{})
 	assert.NoError(err)
 	assert.Equal(3, int(sentinelD.Status.Replicas))
 }
 
-func (c *clients) testRedisMaster(t *testing.T, currentNamespace string) {
+func (c *clients) testRedisMaster(t *testing.T, currentNamespace string, rfName ...string) {
 	assert := assert.New(t)
+	rn := redisFailoverName(rfName...)
 	masters := []string{}
 
-	redisSS, err := c.k8sClient.AppsV1().StatefulSets(currentNamespace).Get(context.Background(), fmt.Sprintf("rfr-%s", name), metav1.GetOptions{})
+	redisSS, err := c.k8sClient.AppsV1().StatefulSets(currentNamespace).Get(context.Background(), fmt.Sprintf("rfr-%s", rn), metav1.GetOptions{})
 	assert.NoError(err)
 
 	listOptions := metav1.ListOptions{
@@ -396,21 +406,17 @@ func (c *clients) testRedisMaster(t *testing.T, currentNamespace string) {
 	assert.Equal(1, len(masters), "only one master expected")
 }
 
-func (c *clients) testSentinelMonitoring(t *testing.T, currentNamespace string, args ...bool) {
-	disableMyMaster := false
-	if len(args) > 0 {
-		disableMyMaster = args[0]
-	}
-
+func (c *clients) testSentinelMonitoring(t *testing.T, currentNamespace string, disableMyMaster bool, rfName ...string) {
+	rn := redisFailoverName(rfName...)
 	masterName := "mymaster"
 	if disableMyMaster {
-		masterName = name
+		masterName = rn
 	}
 
 	assert := assert.New(t)
 	masters := []string{}
 
-	sentinelD, err := c.k8sClient.AppsV1().Deployments(currentNamespace).Get(context.Background(), fmt.Sprintf("rfs-%s", name), metav1.GetOptions{})
+	sentinelD, err := c.k8sClient.AppsV1().Deployments(currentNamespace).Get(context.Background(), fmt.Sprintf("rfs-%s", rn), metav1.GetOptions{})
 	assert.NoError(err)
 
 	listOptions := metav1.ListOptions{
@@ -434,15 +440,16 @@ func (c *clients) testSentinelMonitoring(t *testing.T, currentNamespace string, 
 	assert.True(isMaster, "Sentinel should monitor the Redis master")
 }
 
-func (c *clients) testAuth(t *testing.T, currentNamespace string) {
+func (c *clients) testAuth(t *testing.T, currentNamespace string, rfName ...string) {
 	assert := assert.New(t)
+	rn := redisFailoverName(rfName...)
 
-	redisCfg, err := c.k8sClient.CoreV1().ConfigMaps(currentNamespace).Get(context.Background(), fmt.Sprintf("rfr-%s", name), metav1.GetOptions{})
+	redisCfg, err := c.k8sClient.CoreV1().ConfigMaps(currentNamespace).Get(context.Background(), fmt.Sprintf("rfr-%s", rn), metav1.GetOptions{})
 	assert.NoError(err)
 	assert.Contains(redisCfg.Data["redis.conf"], "requirepass "+testPass)
 	assert.Contains(redisCfg.Data["redis.conf"], "masterauth "+testPass)
 
-	redisSS, err := c.k8sClient.AppsV1().StatefulSets(currentNamespace).Get(context.Background(), fmt.Sprintf("rfr-%s", name), metav1.GetOptions{})
+	redisSS, err := c.k8sClient.AppsV1().StatefulSets(currentNamespace).Get(context.Background(), fmt.Sprintf("rfr-%s", rn), metav1.GetOptions{})
 	assert.NoError(err)
 
 	assert.Len(redisSS.Spec.Template.Spec.Containers, 2)
@@ -457,10 +464,11 @@ func (c *clients) testAuth(t *testing.T, currentNamespace string) {
 	assert.Equal(redisSS.Spec.Template.Spec.Containers[1].Env[4].ValueFrom.SecretKeyRef.LocalObjectReference.Name, authSecretPath)
 }
 
-func (c *clients) testCustomConfig(t *testing.T, currentNamespace string) {
+func (c *clients) testCustomConfig(t *testing.T, currentNamespace string, rfName ...string) {
 	assert := assert.New(t)
+	rn := redisFailoverName(rfName...)
 
-	redisSS, err := c.k8sClient.AppsV1().StatefulSets(currentNamespace).Get(context.Background(), fmt.Sprintf("rfr-%s", name), metav1.GetOptions{})
+	redisSS, err := c.k8sClient.AppsV1().StatefulSets(currentNamespace).Get(context.Background(), fmt.Sprintf("rfr-%s", rn), metav1.GetOptions{})
 	assert.NoError(err)
 
 	listOptions := metav1.ListOptions{

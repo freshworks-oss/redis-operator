@@ -15,6 +15,8 @@ SHELL := $(shell which bash)
 # Local builds use Podman when available, otherwise Docker. Override explicitly,
 # e.g. `make CONTAINER_ENGINE=docker image` when both are installed.
 CONTAINER_ENGINE ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+# Non-empty when CONTAINER_ENGINE points at Podman (path may be .../bin/podman).
+IS_PODMAN := $(findstring podman,$(CONTAINER_ENGINE))
 
 # Get the main unix group for the user running make (to be used by docker-compose later)
 GID := $(shell id -g)
@@ -101,8 +103,23 @@ image: deps-development
 	-f $(APP_DIR)/Dockerfile \
 	.
 
-# Multi-arch push needs `buildx` (Docker Buildx, or Podman 4.3+ with buildx support).
+# Multi-arch registry push:
+# - Docker uses Buildx with `--push`.
+# - Podman uses manifest lists (`podman build --manifest` + `podman manifest push --all`).
 .PHONY: image-release
+ifneq ($(IS_PODMAN),)
+image-release:
+	@echo ">> image-release: using Podman manifest-based multi-arch build and push"
+	$(CONTAINER_ENGINE) build \
+	--platform linux/amd64,linux/arm64,linux/arm/v7 \
+	--manifest $(REPOSITORY):$(TAG) \
+	--build-arg VERSION=$(TAG) \
+	-f $(APP_DIR)/Dockerfile \
+	.
+	$(CONTAINER_ENGINE) manifest push --all $(REPOSITORY):$(TAG) docker://$(REPOSITORY):$(TAG)
+	$(CONTAINER_ENGINE) manifest push --all $(REPOSITORY):$(TAG) docker://$(REPOSITORY):$(COMMIT)
+	$(CONTAINER_ENGINE) manifest push --all $(REPOSITORY):$(TAG) docker://$(REPOSITORY):latest
+else
 image-release:
 	$(CONTAINER_ENGINE) buildx build \
 	--platform linux/amd64,linux/arm64,linux/arm/v7 \
@@ -113,6 +130,7 @@ image-release:
 	-t $(REPOSITORY):$(TAG) \
 	-f $(APP_DIR)/Dockerfile \
 	.
+endif
 
 .PHONY: testing
 testing: image

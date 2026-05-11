@@ -54,6 +54,13 @@ spec:
           spec:
             description: RedisFailoverSpec represents a Redis failover spec
             properties:
+              engine:
+                description: Engine selects Redis or Valkey. Omitted or empty
+                  means Redis (historical behavior).
+                enum:
+                - Redis
+                - Valkey
+                type: string
               auth:
                 description: AuthSettings contains settings about auth
                 properties:
