@@ -16,7 +16,7 @@ This project is licensed under the [Apache License 2.0](LICENSE).
 - [Maintainers](MAINTAINERS.md) — maintainer roles and how to become one.
 - [AGENTS.md](AGENTS.md) — repository layout, CI, and pointers for tooling and AI assistants.
 
-**API group vs project:** The `RedisFailover` CRD is served under the API group `databases.spotahome.com` (unchanged for compatibility). This fork is developed under **Freshworks**; clone URLs, `raw.githubusercontent.com` links, and container images use **`freshworks`** (e.g. `ghcr.io/freshworks/redis-operator`). Renaming the API group would be a breaking change for existing clusters and is not part of this project’s scope.
+**API group vs project:** The `RedisFailover` CRD is served under the API group `databases.spotahome.com` (unchanged for compatibility). This fork is developed under **Freshworks**; clone URLs and `raw.githubusercontent.com` links use the **`freshworks`** GitHub org; the operator image defaults to **`ghcr.io/freshworks/redis-operator`**. Published **Helm charts** (OCI) use **`ghcr.io/freshworks-oss/charts/redis-operator`**, not the `freshworks` GHCR namespace. Renaming the API group would be a breaking change for existing clusters and is not part of this project’s scope.
 
 ## Requirements
 
@@ -35,7 +35,7 @@ It can be done with plain old [deployment](example/operator), using [Kustomize](
 
 Charts are published to **GitHub Container Registry (GHCR)** as OCI artifacts only (no `helm repo add` / GitHub Pages index). After CI runs, the chart appears under the org’s **GitHub Packages** and is pulled as:
 
-`oci://ghcr.io/freshworks/charts/redis-operator`
+`oci://ghcr.io/freshworks-oss/charts/redis-operator`
 
 Authenticate to GHCR with `helm registry login ghcr.io` if your org uses private packages.
 
@@ -49,13 +49,13 @@ Install (set the chart version to match the package you want):
 
 ```
 REDIS_OPERATOR_CHART_VERSION=3.3.3
-helm install redis-operator oci://ghcr.io/freshworks/charts/redis-operator --version "${REDIS_OPERATOR_CHART_VERSION}"
+helm install redis-operator oci://ghcr.io/freshworks-oss/charts/redis-operator --version "${REDIS_OPERATOR_CHART_VERSION}"
 ```
 
 Upgrade:
 
 ```
-helm upgrade redis-operator oci://ghcr.io/freshworks/charts/redis-operator --version "${REDIS_OPERATOR_CHART_VERSION}"
+helm upgrade redis-operator oci://ghcr.io/freshworks-oss/charts/redis-operator --version "${REDIS_OPERATOR_CHART_VERSION}"
 ```
 
 If the repository still has a legacy **`gh-pages`** branch from the old Helm index workflow, you can delete it; chart distribution is **GHCR OCI** only.
@@ -71,7 +71,7 @@ kubectl replace -f https://raw.githubusercontent.com/freshworks/redis-operator/$
 
 ```
 REDIS_OPERATOR_CHART_VERSION=3.3.3
-helm upgrade redis-operator oci://ghcr.io/freshworks/charts/redis-operator --version "${REDIS_OPERATOR_CHART_VERSION}"
+helm upgrade redis-operator oci://ghcr.io/freshworks-oss/charts/redis-operator --version "${REDIS_OPERATOR_CHART_VERSION}"
 ```
 ### Using kubectl
 
