@@ -76,10 +76,22 @@ supported versions.
 
 ## Go toolchain (stdlib fixes)
 
-The module pins **`toolchain go1.25.9`** in [`go.mod`](go.mod). Building and
-running **govulncheck** with **Go 1.25.9** instead of **1.24.4** clears the
-following **reachable** standard-library findings that were reported against the
-older toolchain (IDs are from the [Go vulnerability database](https://pkg.go.dev/vuln)):
+The module declares **`go 1.26.3`** in [`go.mod`](go.mod). CI uses
+**`go-version-file: go.mod`** (`actions/setup-go`), so CI and contributors should
+build with that same Go release. Run **`make ci-govulncheck`** after upgrades; some
+advisories also require bumping dependencies (for example **`golang.org/x/net`**),
+not only the Go toolchain.
+
+Current toolchain and module pins (for example **`golang.org/x/net` v0.53.0+**)
+address **reachable** reports such as:
+
+| ID | One-line summary |
+|----|------------------|
+| GO-2026-4971 | Panic in `Dial` / `LookupPort` when handling NUL byte on Windows in `net` (fixed in `net` @ Go 1.25.10+). |
+| GO-2026-4918 | Infinite loop in HTTP/2 transport with bad `SETTINGS_MAX_FRAME_SIZE` (`golang.org/x/net`, `net/http`; fixed in `x/net` v0.53.0+ and `net/http` @ Go 1.25.10+). |
+
+Migrating from **Go 1.24.x** to the **1.25** line cleared additional **reachable**
+stdlib findings (same database):
 
 | ID | One-line summary |
 |----|------------------|
