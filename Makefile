@@ -3,11 +3,8 @@ VERSION ?= v1.3.0-rc0
 # Name of this service/application
 SERVICE_NAME := redis-operator
 
-# Docker image name for this project
-IMAGE_NAME := freshworks/$(SERVICE_NAME)
-
-# Repository url for this project
-REPOSITORY := ghcr.io/$(IMAGE_NAME)
+# Docker image on GHCR
+REPOSITORY := ghcr.io/freshworks-oss/$(SERVICE_NAME)
 
 # Shell to use for running scripts
 SHELL := $(shell which bash)
@@ -18,10 +15,7 @@ CONTAINER_ENGINE ?= $(shell command -v podman 2>/dev/null || command -v docker 2
 # Non-empty when CONTAINER_ENGINE points at Podman (path may be .../bin/podman).
 IS_PODMAN := $(findstring podman,$(CONTAINER_ENGINE))
 
-# Get the main unix group for the user running make (to be used by docker-compose later)
-GID := $(shell id -g)
-
-# Get the unix user id for the user running make (to be used by docker-compose later)
+# Get the main unix user id for the user running make (used by docker run -u)
 UID := $(shell id -u)
 
 # Commit hash from git
@@ -42,7 +36,6 @@ ifneq ($(shell git status --porcelain),)
 endif
 
 
-PROJECT_PACKAGE := github.com/freshworks/redis-operator
 CODEGEN_IMAGE := ghcr.io/slok/kube-code-generator:v0.7.0
 PORT := 9710
 
