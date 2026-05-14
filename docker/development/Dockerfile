@@ -1,12 +1,15 @@
-FROM golang:1.26.3-alpine
+FROM golang:1.26.3-trixie
 
 ENV CODEGEN_VERSION="1.27.16"
 
-RUN apk --no-cache add \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
+    ca-certificates \
     git \
     g++ \
-    openssl
+    openssl \
+    wget \
+ && rm -rf /var/lib/apt/lists/*
 
 # Code generator stuff
 # Check: https://github.com/kubernetes/kubernetes/pull/57656
@@ -33,9 +36,9 @@ RUN wget -O- -nv https://raw.githubusercontent.com/golangci/golangci-lint/master
 # Create user
 ARG uid=1000
 ARG gid=1000
-RUN addgroup -g $gid rf && \
-    adduser -D -u $uid -G rf rf && \
-    chown rf:rf -R /go
+RUN groupadd -g "$gid" rf && \
+    useradd --uid "$uid" --gid rf --create-home --shell /bin/bash rf && \
+    chown -R rf:rf /go
 
 
 USER rf

@@ -1,5 +1,5 @@
-FROM --platform=$BUILDPLATFORM golang:1.26.3-bookworm AS build
-# Debian already includes bash
+FROM --platform=$BUILDPLATFORM golang:1.26.3-trixie AS build
+# Debian trixie (testing) — matches distroless static-debian13 runtime
 
 WORKDIR /src
 COPY . .
@@ -11,7 +11,7 @@ RUN GOOS=$TARGETOS GOARCH=$TARGETARCH VERSION=$VERSION ./scripts/build.sh
 
 # Use distroless as minimal base image
 # https://github.com/GoogleContainerTools/distroless
-FROM gcr.io/distroless/static-debian12:nonroot AS final
+FROM gcr.io/distroless/static-debian13:nonroot AS final
 WORKDIR /
 
 # Copy the binary from the build stage
