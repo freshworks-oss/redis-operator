@@ -5,7 +5,7 @@ go 1.26.3
 require (
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/prometheus/client_golang v1.16.0
-	github.com/sirupsen/logrus v1.9.3
+	github.com/sirupsen/logrus v1.9.4
 	github.com/spotahome/kooper/v2 v2.5.0
 	github.com/stretchr/testify v1.10.0
 	k8s.io/api v0.33.2
