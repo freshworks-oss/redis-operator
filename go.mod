@@ -7,7 +7,7 @@ require (
 	github.com/prometheus/client_golang v1.16.0
 	github.com/sirupsen/logrus v1.9.4
 	github.com/spotahome/kooper/v2 v2.5.0
-	github.com/stretchr/testify v1.10.0
+	github.com/stretchr/testify v1.11.1
 	k8s.io/api v0.33.2
 	k8s.io/apiextensions-apiserver v0.28.4
 	k8s.io/apimachinery v0.33.2
