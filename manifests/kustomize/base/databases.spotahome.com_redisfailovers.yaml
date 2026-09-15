@@ -54,13 +54,6 @@ spec:
           spec:
             description: RedisFailoverSpec represents a Redis failover spec
             properties:
-              engine:
-                description: Engine selects Redis or Valkey. Omitted or empty
-                  means Redis (historical behavior).
-                enum:
-                - Redis
-                - Valkey
-                type: string
               auth:
                 description: AuthSettings contains settings about auth
                 properties:
@@ -78,6 +71,13 @@ spec:
                   port:
                     type: string
                 type: object
+              engine:
+                description: Engine selects Redis or Valkey. Omitted or empty means
+                  Redis (historical behavior).
+                enum:
+                - Redis
+                - Valkey
+                type: string
               labelWhitelist:
                 items:
                   type: string
@@ -1678,6 +1678,8 @@ spec:
                         format: int32
                         type: integer
                     type: object
+                  disableMasterRollout:
+                    type: boolean
                   disablePodDisruptionBudget:
                     type: boolean
                   dnsPolicy:
@@ -6840,13 +6842,12 @@ spec:
                     type: integer
                   preventMasterEviction:
                     type: boolean
-                  disableMasterRollout:
-                    default: false
-                    description: When true, only slave pods are rolled out on spec change (OnDelete); master is not deleted until this is false.
-                    type: boolean
                   priorityClassName:
                     type: string
                   replicas:
+                    format: int32
+                    type: integer
+                  reservedPodMemoryPercent:
                     format: int32
                     type: integer
                   resources:
