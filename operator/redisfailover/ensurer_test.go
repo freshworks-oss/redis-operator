@@ -65,6 +65,7 @@ func TestEnsure(t *testing.T) {
 		exporter                    bool
 		bootstrapping               bool
 		bootstrappingAllowSentinels bool
+		standalone                  bool
 	}{
 		{
 			name:                        "Call everything, use exporter",
@@ -90,6 +91,11 @@ func TestEnsure(t *testing.T) {
 			bootstrapping:               true,
 			bootstrappingAllowSentinels: true,
 		},
+		{
+			name:       "Only ensure Redis when standalone",
+			exporter:   false,
+			standalone: true,
+		},
 	}
 
 	for _, test := range tests {
@@ -100,6 +106,7 @@ func TestEnsure(t *testing.T) {
 			if test.bootstrapping {
 				rf.Spec.BootstrapNode.AllowSentinels = test.bootstrappingAllowSentinels
 			}
+			rf.Spec.Standalone = test.standalone
 
 			config := generateConfig()
 			mk := &mK8SService.Services{}
@@ -112,14 +119,18 @@ func TestEnsure(t *testing.T) {
 				mrfs.On("EnsureNotPresentRedisService", rf).Once().Return(nil)
 			}
 
-			if !test.bootstrapping || test.bootstrappingAllowSentinels {
+			if (!test.bootstrapping || test.bootstrappingAllowSentinels) && !test.standalone {
 				mrfs.On("EnsureSentinelService", rf, mock.Anything, mock.Anything).Once().Return(nil)
 				mrfs.On("EnsureSentinelConfigMap", rf, mock.Anything, mock.Anything).Once().Return(nil)
 				mrfs.On("EnsureSentinelDeployment", rf, mock.Anything, mock.Anything).Once().Return(nil)
 			}
 
 			mrfs.On("EnsureRedisMasterService", rf, mock.Anything, mock.Anything).Once().Return(nil)
-			mrfs.On("EnsureRedisSlaveService", rf, mock.Anything, mock.Anything).Once().Return(nil)
+			if !test.standalone {
+				mrfs.On("EnsureRedisSlaveService", rf, mock.Anything, mock.Anything).Once().Return(nil)
+			} else {
+				mrfs.On("EnsureNotPresentRedisSlaveService", rf).Once().Return(nil)
+			}
 			mrfs.On("EnsureRedisConfigMap", rf, mock.Anything, mock.Anything).Once().Return(nil)
 			mrfs.On("EnsureRedisShutdownConfigMap", rf, mock.Anything, mock.Anything).Once().Return(nil)
 			mrfs.On("EnsureRedisReadinessConfigMap", rf, mock.Anything, mock.Anything).Once().Return(nil)

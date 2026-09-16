@@ -40,6 +40,16 @@ func (r *RedisFailover) Validate() error {
 		r.Spec.Redis.CustomConfig = deduplicateStr(append(defaultRedisCustomConfig, r.Spec.Redis.CustomConfig...))
 	}
 
+	if r.Spec.Standalone {
+		if r.Bootstrapping() {
+			return errors.New("standalone and bootstrapNode are mutually exclusive")
+		}
+		if r.Spec.Redis.Replicas != 0 && r.Spec.Redis.Replicas != 1 {
+			return errors.New("standalone mode requires redis.replicas to be 1 (or omitted)")
+		}
+		r.Spec.Redis.Replicas = 1
+	}
+
 	if r.Spec.Redis.Image == "" {
 		r.Spec.Redis.Image = defaultImageForEngine
 	}
@@ -60,7 +70,7 @@ func (r *RedisFailover) Validate() error {
 		r.Spec.Redis.ReservedPodMemoryPercent = defaultReservedPodMemoryPercent
 	}
 
-	if r.Spec.Sentinel.Replicas <= 0 {
+	if r.Spec.Sentinel.Replicas <= 0 && !r.Spec.Standalone {
 		r.Spec.Sentinel.Replicas = defaultSentinelNumber
 	}
 

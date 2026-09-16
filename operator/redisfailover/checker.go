@@ -85,6 +85,9 @@ func (r *RedisFailoverHandler) UpdateRedisesPods(rf *redisfailoverv1.RedisFailov
 // CheckAndHeal runs verifcation checks to ensure the RedisFailover is in an expected and healthy state.
 // If the checks do not match up to expectations, an attempt will be made to "heal" the RedisFailover into a healthy state.
 func (r *RedisFailoverHandler) CheckAndHeal(rf *redisfailoverv1.RedisFailover) error {
+	if rf.Standalone() {
+		return r.checkAndHealStandaloneMode(rf)
+	}
 	if rf.Bootstrapping() {
 		return r.checkAndHealBootstrapMode(rf)
 	}
@@ -279,6 +282,45 @@ func (r *RedisFailoverHandler) checkAndHealBootstrapMode(rf *redisfailoverv1.Red
 		return r.checkAndHealSentinels(rf, sentinels)
 	}
 	return nil
+}
+
+// checkAndHealStandaloneMode handles a RedisFailover with no Sentinel at all: a single
+// self-contained Redis pod that is always treated as master, with no external master and
+// no Sentinel monitor/quorum bookkeeping.
+func (r *RedisFailoverHandler) checkAndHealStandaloneMode(rf *redisfailoverv1.RedisFailover) error {
+	if !r.rfChecker.IsRedisRunning(rf) {
+		setRedisCheckerMetrics(r.mClient, "redis", rf.Namespace, rf.Name, metrics.REDIS_REPLICA_MISMATCH, metrics.NOT_APPLICABLE, errors.New("not all replicas running"))
+		r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Debugf("Number of redis mismatch, waiting for redis statefulset reconcile")
+		return nil
+	}
+
+	nMasters, err := r.rfChecker.GetNumberMasters(rf)
+	if err != nil {
+		return err
+	}
+
+	switch nMasters {
+	case 0:
+		err = r.rfHealer.SetOldestAsMaster(rf)
+		setRedisCheckerMetrics(r.mClient, "redis", rf.Namespace, rf.Name, metrics.NO_MASTER, metrics.NOT_APPLICABLE, err)
+		if err != nil {
+			r.logger.WithField("redisfailover", rf.ObjectMeta.Name).WithField("namespace", rf.ObjectMeta.Namespace).Errorf("Error in Setting oldest Pod as master")
+			return err
+		}
+	case 1:
+		setRedisCheckerMetrics(r.mClient, "redis", rf.Namespace, rf.Name, metrics.NUMBER_OF_MASTERS, metrics.NOT_APPLICABLE, nil)
+	default:
+		setRedisCheckerMetrics(r.mClient, "redis", rf.Namespace, rf.Name, metrics.NUMBER_OF_MASTERS, metrics.NOT_APPLICABLE, errors.New("multiple masters detected"))
+		return errors.New("more than one master, fix manually")
+	}
+
+	err = r.applyRedisCustomConfig(rf)
+	setRedisCheckerMetrics(r.mClient, "redis", rf.Namespace, rf.Name, metrics.APPLY_REDIS_CONFIG, metrics.NOT_APPLICABLE, err)
+	if err != nil {
+		return err
+	}
+
+	return r.UpdateRedisesPods(rf)
 }
 
 func (r *RedisFailoverHandler) applyRedisCustomConfig(rf *redisfailoverv1.RedisFailover) error {

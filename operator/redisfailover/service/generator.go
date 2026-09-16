@@ -23,8 +23,14 @@ const (
 	redisConfigTemplate = `slaveof 127.0.0.1 {{.Spec.Redis.Port}}
 port {{.Spec.Redis.Port}}
 tcp-keepalive 60
+{{- if .Spec.Standalone}}
+appendonly yes
+appendfsync everysec
+save ""
+{{- else}}
 save 900 1
 save 300 10
+{{- end}}
 user pinger -@all +ping on >pingpass
 {{- range .Spec.Redis.CustomCommandRenames}}
 rename-command "{{.From}}" "{{.To}}"

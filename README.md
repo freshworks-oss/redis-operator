@@ -483,6 +483,34 @@ This allows for ease of bootstrapping from an existing `RedisFailover` instance 
 When `allowSentinels` is provided, the Operator will also create the defined Sentinel resources. These sentinels will be configured to point to the provided
 `bootstrapNode` as their monitored master.
 
+### Standalone Mode
+If you want a single, self-contained Redis instance with **no Sentinel deployed at all**, set `standalone: true` on your `RedisFailover` resource spec. See [standalone.yaml](example/redisfailover/standalone.yaml).
+
+```yaml
+spec:
+  standalone: true
+  redis:
+    storage:
+      persistentVolumeClaim:
+        metadata:
+          name: data
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: efs-sc
+          resources:
+            requests:
+              storage: 1Gi
+```
+
+`storageClassName` is a plain passthrough into the generated StatefulSet's `volumeClaimTemplates` — the operator does not infer or default it. Omitting it falls back to your cluster's default `StorageClass` (whichever one is annotated `storageclass.kubernetes.io/is-default-class: "true"`), which may not be the one you want; set it explicitly (e.g. an EFS-backed class like `efs-sc`) if that matters for your use case.
+
+**Keep the `RedisFailover` name and PVC template name short.** Each pod's PVC is named `<pvc-template-name>-rfr-<RedisFailover-name>-<ordinal>`. EFS access-point-backed StorageClasses with `ensureUniqueDirectory` enabled append a ~37-character UUID on top of the StorageClass's `basePath` + your namespace + that computed name, and AWS enforces a hard 100-character limit on an access point's root directory path — long names here (combined with a long namespace) can push you over that limit and PVC creation will fail with `ProvisioningFailed: ... exceeds file system limit of 100 characters`.
+
+Setting `standalone: true` forces `redis.replicas` to `1` and `sentinel.replicas` to `0` — no Sentinel Service, ConfigMap, or Deployment will be created, and the single Redis pod is always treated as master. This is mutually exclusive with `bootstrapNode`.
+
+Standalone mode also defaults the generated `redis.conf` to AOF-only persistence (`appendonly yes`, `appendfsync everysec`, RDB snapshotting disabled) instead of the periodic RDB `save` points used in the default (Sentinel-backed) topology.
+
 ### Default versions
 
 The image versions deployed by the operator can be found on the [defaults file](api/redisfailover/v1/defaults.go).

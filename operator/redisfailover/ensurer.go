@@ -33,8 +33,16 @@ func (w *RedisFailoverHandler) Ensure(rf *redisfailoverv1.RedisFailover, labels 
 		return err
 	}
 
-	if err := w.rfService.EnsureRedisSlaveService(rf, labels, or); err != nil {
-		return err
+	// A standalone RedisFailover has exactly 1 replica, always master — there is never
+	// a slave pod, so the slave service would otherwise sit around permanently empty.
+	if !rf.Standalone() {
+		if err := w.rfService.EnsureRedisSlaveService(rf, labels, or); err != nil {
+			return err
+		}
+	} else {
+		if err := w.rfService.EnsureNotPresentRedisSlaveService(rf); err != nil {
+			return err
+		}
 	}
 
 	if err := w.rfService.EnsureRedisShutdownConfigMap(rf, labels, or); err != nil {

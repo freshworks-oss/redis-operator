@@ -549,6 +549,144 @@ func TestRedisStatefulSetStorageGeneration(t *testing.T) {
 	}
 }
 
+func TestRedisConfigMapPersistence(t *testing.T) {
+	tests := []struct {
+		name       string
+		standalone bool
+	}{
+		{
+			name:       "default RDB-based persistence",
+			standalone: false,
+		},
+		{
+			name:       "standalone AOF-only persistence",
+			standalone: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			rf := generateRF()
+			rf.Spec.Standalone = test.standalone
+
+			var generatedConfigMap corev1.ConfigMap
+
+			ms := &mK8SService.Services{}
+			ms.On("CreateOrUpdateConfigMap", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+				cm := args.Get(1).(*corev1.ConfigMap)
+				generatedConfigMap = *cm
+			}).Return(nil)
+
+			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+			err := client.EnsureRedisConfigMap(rf, nil, nil)
+			assert.NoError(err)
+
+			content := generatedConfigMap.Data["redis.conf"]
+			if test.standalone {
+				assert.Contains(content, "appendonly yes")
+				assert.Contains(content, "appendfsync everysec")
+				assert.Contains(content, `save ""`)
+				assert.NotContains(content, "save 900 1")
+			} else {
+				assert.Contains(content, "save 900 1")
+				assert.Contains(content, "save 300 10")
+				assert.NotContains(content, "appendonly yes")
+			}
+		})
+	}
+}
+
+func TestRedisStatefulSetPodDisruptionBudget(t *testing.T) {
+	tests := []struct {
+		name       string
+		standalone bool
+		expectPDB  bool
+	}{
+		{
+			name:       "default replicas creates a PDB",
+			standalone: false,
+			expectPDB:  true,
+		},
+		{
+			name:       "standalone (single replica, no failover partner) skips the PDB",
+			standalone: true,
+			expectPDB:  false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			rf := generateRF()
+			rf.Spec.Standalone = test.standalone
+
+			ms := &mK8SService.Services{}
+			ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, errors.NewNotFound(schema.GroupResource{}, ""))
+			ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Return(nil)
+			if test.expectPDB {
+				ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
+			}
+
+			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+			err := client.EnsureRedisStatefulset(rf, nil, nil)
+
+			assert.NoError(err)
+			ms.AssertExpectations(t)
+			if !test.expectPDB {
+				ms.AssertNotCalled(t, "CreateOrUpdatePodDisruptionBudget", mock.Anything, mock.Anything)
+			}
+		})
+	}
+}
+
+func TestEnsureNotPresentRedisSlaveService(t *testing.T) {
+	tests := []struct {
+		name           string
+		serviceExists  bool
+		expectedDelete bool
+	}{
+		{
+			name:           "slave service exists, gets deleted",
+			serviceExists:  true,
+			expectedDelete: true,
+		},
+		{
+			name:           "slave service already absent, no-op",
+			serviceExists:  false,
+			expectedDelete: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			rf := generateRF()
+			slaveName := rfservice.GetRedisSlaveName(rf)
+
+			ms := &mK8SService.Services{}
+			if test.serviceExists {
+				ms.On("GetService", namespace, slaveName).Once().Return(&corev1.Service{}, nil)
+				ms.On("DeleteService", namespace, slaveName).Once().Return(nil)
+			} else {
+				ms.On("GetService", namespace, slaveName).Once().Return(nil, errors.NewNotFound(schema.GroupResource{}, slaveName))
+			}
+
+			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+			err := client.EnsureNotPresentRedisSlaveService(rf)
+
+			assert.NoError(err)
+			ms.AssertExpectations(t)
+			if !test.expectedDelete {
+				ms.AssertNotCalled(t, "DeleteService", mock.Anything, mock.Anything)
+			}
+		})
+	}
+}
+
 func TestRedisStatefulSetCommands(t *testing.T) {
 	tests := []struct {
 		name             string
