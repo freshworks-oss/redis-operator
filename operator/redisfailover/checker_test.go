@@ -679,6 +679,182 @@ func TestCheckAndHeal(t *testing.T) {
 	}
 }
 
+func TestCheckAndHealStandaloneMode(t *testing.T) {
+	tests := []struct {
+		name          string
+		redisRunning  bool
+		nMasters      int
+		expectedError bool
+	}{
+		{
+			name:         "redis not yet running, wait",
+			redisRunning: false,
+		},
+		{
+			name:         "no master, operator sets the single pod as master",
+			redisRunning: true,
+			nMasters:     0,
+		},
+		{
+			name:         "master already set, nothing to heal",
+			redisRunning: true,
+			nMasters:     1,
+		},
+		{
+			name:          "more than one master, fix manually",
+			redisRunning:  true,
+			nMasters:      2,
+			expectedError: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			rf := generateRF(false, false, false)
+			rf.Spec.Standalone = true
+			rf.Spec.Redis.Replicas = 1
+
+			redis := "0.0.0.1"
+
+			config := generateConfig()
+			mk := &mK8SService.Services{}
+			mrfs := &mRFService.RedisFailoverClient{}
+			mrfc := &mRFService.RedisFailoverCheck{}
+			mrfh := &mRFService.RedisFailoverHeal{}
+
+			mrfc.On("IsRedisRunning", rf).Once().Return(test.redisRunning)
+
+			if test.redisRunning {
+				mrfc.On("GetNumberMasters", rf).Once().Return(test.nMasters, nil)
+
+				if test.nMasters == 0 {
+					mrfh.On("SetOldestAsMaster", rf).Once().Return(nil)
+				}
+
+				if !test.expectedError {
+					mrfc.On("GetRedisesIPs", rf).Twice().Return([]string{redis}, nil)
+					mrfh.On("SetRedisCustomConfig", redis, rf).Once().Return(nil)
+					mrfc.On("GetMasterIP", rf).Once().Return(redis, nil)
+					mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)
+					mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
+					mrfc.On("GetRedisesMasterPod", rf).Once().Return(redis, nil)
+					mrfc.On("GetRedisRevisionHash", redis, rf).Once().Return("1", nil)
+				}
+			}
+
+			handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, mk, metrics.Dummy, log.Dummy)
+			err := handler.CheckAndHeal(rf)
+
+			if test.expectedError {
+				assert.Error(err)
+			} else {
+				assert.NoError(err)
+			}
+			mrfc.AssertExpectations(t)
+			mrfh.AssertExpectations(t)
+		})
+	}
+}
+
+func TestCheckAndHealStandaloneWhileBootstrapping(t *testing.T) {
+	// Standalone + Bootstrapping dispatches to the same checkAndHealBootstrapMode used
+	// by a full Sentinel-backed RedisFailover — nothing in it is standalone-specific,
+	// so this also covers Sentinel getting configured to monitor bootstrapNode.Host
+	// when allowSentinels is set (previously SentinelsAllowed() hardcoded false for
+	// any standalone RF, so Sentinel was silently never created at all).
+	bootstrapHost := "127.0.0.1"
+	bootstrapPort := "6379"
+
+	tests := []struct {
+		name                string
+		redisRunning        bool
+		setExternalMasterOK bool
+		allowSentinels      bool
+		expectedError       bool
+	}{
+		{
+			name:         "redis not yet running, wait",
+			redisRunning: false,
+		},
+		{
+			name:                "still bootstrapping, keeps replicating from the external host",
+			redisRunning:        true,
+			setExternalMasterOK: true,
+		},
+		{
+			name:                "SetExternalMasterOnAll fails, error propagates",
+			redisRunning:        true,
+			setExternalMasterOK: false,
+			expectedError:       true,
+		},
+		{
+			name:                "allowSentinels configures sentinel to monitor the bootstrap host",
+			redisRunning:        true,
+			setExternalMasterOK: true,
+			allowSentinels:      true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			rf := generateRF(false, true, false)
+			rf.Spec.Standalone = true
+			rf.Spec.Redis.Replicas = 1
+			rf.Spec.BootstrapNode.AllowSentinels = test.allowSentinels
+
+			redis := "0.0.0.1"
+			sentinel := "1.1.1.1"
+
+			config := generateConfig()
+			mk := &mK8SService.Services{}
+			mrfs := &mRFService.RedisFailoverClient{}
+			mrfc := &mRFService.RedisFailoverCheck{}
+			mrfh := &mRFService.RedisFailoverHeal{}
+
+			mrfc.On("IsRedisRunning", rf).Once().Return(test.redisRunning)
+
+			if test.redisRunning {
+				// once for UpdateRedisesPods, once for applyRedisCustomConfig.
+				mrfc.On("GetRedisesIPs", rf).Twice().Return([]string{redis}, nil)
+				mrfh.On("SetRedisCustomConfig", redis, rf).Once().Return(nil)
+				mrfc.On("CheckRedisSlavesReady", redis, rf).Once().Return(true, nil)
+				mrfc.On("GetStatefulSetUpdateRevision", rf).Once().Return("1", nil)
+				mrfc.On("GetRedisesSlavesPods", rf).Once().Return([]string{}, nil)
+
+				if test.setExternalMasterOK {
+					mrfh.On("SetExternalMasterOnAll", bootstrapHost, bootstrapPort, rf).Once().Return(nil)
+				} else {
+					mrfh.On("SetExternalMasterOnAll", bootstrapHost, bootstrapPort, rf).Once().Return(errors.New("boom"))
+				}
+
+				if test.allowSentinels && test.setExternalMasterOK {
+					mrfc.On("IsSentinelRunning", rf).Once().Return(true)
+					mrfc.On("GetSentinelsIPs", rf).Once().Return([]string{sentinel}, nil)
+					mrfc.On("CheckSentinelMonitor", sentinel, rf.MasterName(), bootstrapHost, bootstrapPort).Once().Return(nil)
+					mrfc.On("CheckSentinelNumberInMemory", sentinel, rf).Once().Return(nil)
+					mrfc.On("CheckSentinelSlavesNumberInMemory", sentinel, rf).Once().Return(nil)
+					mrfh.On("SetSentinelCustomConfig", sentinel, rf).Once().Return(nil)
+				}
+			}
+
+			handler := rfOperator.NewRedisFailoverHandler(config, mrfs, mrfc, mrfh, mk, metrics.Dummy, log.Dummy)
+			err := handler.CheckAndHeal(rf)
+
+			if test.expectedError {
+				assert.Error(err)
+			} else {
+				assert.NoError(err)
+			}
+			mrfc.AssertExpectations(t)
+			mrfh.AssertExpectations(t)
+		})
+	}
+}
+
 func TestUpdate(t *testing.T) {
 	type podStatus struct {
 		pod    corev1.Pod

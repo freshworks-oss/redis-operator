@@ -1,0 +1,25 @@
+apiVersion: databases.spotahome.com/v1
+kind: RedisFailover
+metadata:
+  # Keep this short: the per-pod PVC name is "<pvc-template-name>-rfr-<this-name>-<ordinal>".
+  # EFS access-point-backed StorageClasses with ensureUniqueDirectory enabled append a
+  # ~37-char UUID on top of basePath+namespace+this computed name, and AWS enforces a
+  # hard 100-character limit on the access point's root directory path — long names here
+  # (combined with a long namespace) can push you over that limit at PVC-creation time.
+  name: standalone
+  labels:
+    redis-failover.freshworks.com/operator-group: group-1
+spec:
+  standalone: true
+  redis:
+    storage:
+      persistentVolumeClaim:
+        metadata:
+          name: data
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: efs-sc
+          resources:
+            requests:
+              storage: 1Gi

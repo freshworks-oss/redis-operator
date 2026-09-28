@@ -24,6 +24,7 @@ type RedisFailoverClient interface {
 	EnsureRedisService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureRedisMasterService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureRedisSlaveService(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
+	EnsureNotPresentRedisSlaveService(rFailover *redisfailoverv1.RedisFailover) error
 	EnsureRedisShutdownConfigMap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureRedisReadinessConfigMap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
 	EnsureRedisConfigMap(rFailover *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error
@@ -114,7 +115,10 @@ func (r *RedisFailoverKubeClient) EnsureSentinelDeployment(rf *redisfailoverv1.R
 
 // EnsureRedisStatefulset makes sure the redis statefulset exists in the desired state
 func (r *RedisFailoverKubeClient) EnsureRedisStatefulset(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
-	if !rf.Spec.Redis.DisablePodDisruptionBudget {
+	// Standalone always runs exactly 1 replica with no failover partner, so a PDB
+	// with minAvailable=1 (client.go's <=2-replica rule) would block ANY voluntary
+	// eviction (node drains, cluster-autoscaler) of the only pod forever.
+	if !rf.Spec.Redis.DisablePodDisruptionBudget && !rf.Standalone() {
 		if err := r.ensurePodDisruptionBudget(rf, redisName, redisRoleName, labels, ownerRefs); err != nil {
 			return err
 		}
@@ -313,6 +317,18 @@ func (r *RedisFailoverKubeClient) EnsureRedisSlaveService(rf *redisfailoverv1.Re
 
 	r.setEnsureOperationMetrics(svc.Namespace, svc.Name, "Service", rf.Name, err)
 	return err
+}
+
+// EnsureNotPresentRedisSlaveService makes sure the redis slave service is not present.
+// A standalone RedisFailover never has a slave pod (always exactly 1, always master), so
+// the slave service would otherwise sit around permanently empty.
+func (r *RedisFailoverKubeClient) EnsureNotPresentRedisSlaveService(rf *redisfailoverv1.RedisFailover) error {
+	name := GetRedisSlaveName(rf)
+	namespace := rf.Namespace
+	if _, err := r.K8SService.GetService(namespace, name); err == nil {
+		return r.K8SService.DeleteService(namespace, name)
+	}
+	return nil
 }
 
 // EnsureRedisStatefulset makes sure the pdb exists in the desired state

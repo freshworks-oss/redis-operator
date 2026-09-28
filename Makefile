@@ -18,6 +18,17 @@ IS_PODMAN := $(findstring podman,$(CONTAINER_ENGINE))
 # Get the main unix user id for the user running make (used by docker run -u)
 UID := $(shell id -u)
 
+# Rootless Podman remaps container UIDs by default, so a container process running
+# as root does not own bind-mounted host files, causing "Permission denied" when it
+# tries to write/delete them (e.g. update-codegen, generate-crd). --userns=keep-id
+# reserves a 1:1 mapping slot for the invoking host user, but the process still runs
+# as root (mapped elsewhere) unless it's also told to run AS that uid via -u; the two
+# flags are required together. HOME=/tmp and GOPATH=/tmp/go redirect tools (e.g.
+# `go`) away from root-owned paths baked into the image (e.g. /go/pkg/mod) that a
+# non-root uid can't write to.
+# Not applicable/needed for Docker's default (root, no userns remap) setup.
+PODMAN_ROOTLESS_FLAGS := $(if $(IS_PODMAN),--userns=keep-id -u $(UID):$(UID) -e HOME=/tmp -e GOPATH=/tmp/go,)
+
 # Commit hash from git
 COMMIT=$(shell git rev-parse HEAD)
 GITTAG_COMMIT := $(shell git rev-list --tags --max-count=1)
@@ -103,7 +114,7 @@ image: deps-development
 ifneq ($(IS_PODMAN),)
 image-release:
 	@echo ">> image-release: using Podman manifest-based multi-arch build and push"
-	$(CONTAINER_ENGINE) build \
+	$(CONTAINER_ENGINE) build --no-cache \
 	--platform linux/amd64,linux/arm64,linux/arm/v7 \
 	--manifest $(REPOSITORY):$(TAG) \
 	--build-arg VERSION=$(TAG) \
@@ -221,6 +232,8 @@ update-codegen:
 	@echo ">> Generating code for Kubernetes CRD types..."
 	$(CONTAINER_ENGINE) run --rm -it \
 	-v $(PWD):/app \
+	$(PODMAN_ROOTLESS_FLAGS) \
+	-e GOTOOLCHAIN=auto \
 	-e KUBE_CODE_GENERATOR_GO_GEN_OUT=./client/k8s \
 	-e KUBE_CODE_GENERATOR_APIS_IN=./api \
 	-e GROUPS_VERSION="redisfailover:v1" \
@@ -231,6 +244,8 @@ generate-crd:
 	@echo ">> Generating CRD..."
 	$(CONTAINER_ENGINE) run --rm -it \
 	-v $(PWD):/app \
+	$(PODMAN_ROOTLESS_FLAGS) \
+	-e GOTOOLCHAIN=auto \
 	-e KUBE_CODE_GENERATOR_APIS_IN=./api \
 	-e KUBE_CODE_GENERATOR_CRD_GEN_OUT=./manifests \
 	-e GROUPS_VERSION="redisfailover:v1" \

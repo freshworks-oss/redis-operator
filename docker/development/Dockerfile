@@ -20,7 +20,7 @@ RUN wget http://github.com/kubernetes/code-generator/archive/kubernetes-${CODEGE
     touch /go/src/k8s.io/kubernetes/hack/boilerplate/boilerplate.go.txt
 
 # Mock creator — assets are mockery_${VER}_Linux_{arm64|x86_64}.tar.gz (not uname -o: GNU/Linux breaks the URL)
-ARG MOCKERY_VERSION="2.45.0"
+ARG MOCKERY_VERSION="2.53.7"
 RUN ARCH="$(uname -m)" && \
     case "$ARCH" in \
       x86_64|amd64) MOCKERY_ARCH=x86_64 ;; \

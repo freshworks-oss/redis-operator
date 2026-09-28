@@ -15,6 +15,8 @@ func TestValidate(t *testing.T) {
 		rfBootstrapNode        *BootstrapSettings
 		rfRedisCustomConfig    []string
 		rfSentinelCustomConfig []string
+		rfStandalone           bool
+		rfRedisReplicas        int32
 		expectedError          string
 		expectedBootstrapNode  *BootstrapSettings
 	}{
@@ -28,15 +30,15 @@ func TestValidate(t *testing.T) {
 			expectedError: "name length can't be higher than 48",
 		},
 		{
-			name:             "errors on invalid engine",
-			rfName:           "test",
-			rfEngine:         DatabaseEngine("Other"),
-			expectedError:    "invalid engine",
+			name:          "errors on invalid engine",
+			rfName:        "test",
+			rfEngine:      DatabaseEngine("Other"),
+			expectedError: "invalid engine",
 		},
 		{
-			name:             "Valkey engine uses default Valkey image",
-			rfName:           "test",
-			rfEngine:         ValkeyEngine,
+			name:     "Valkey engine uses default Valkey image",
+			rfName:   "test",
+			rfEngine: ValkeyEngine,
 		},
 		{
 			name:                   "SentinelCustomConfig provided",
@@ -77,6 +79,32 @@ func TestValidate(t *testing.T) {
 			rfBootstrapNode:       &BootstrapSettings{Host: "127.0.0.1"},
 			expectedBootstrapNode: &BootstrapSettings{Host: "127.0.0.1", Port: "6379"},
 		},
+		{
+			name:         "Standalone populates defaults",
+			rfName:       "test",
+			rfStandalone: true,
+		},
+		{
+			name:                  "Standalone allows BootstrapNode, to seed from an external host",
+			rfName:                "test",
+			rfStandalone:          true,
+			rfBootstrapNode:       &BootstrapSettings{Host: "127.0.0.1"},
+			expectedBootstrapNode: &BootstrapSettings{Host: "127.0.0.1", Port: "6379"},
+		},
+		{
+			name:            "Standalone rejects an explicit conflicting replica count",
+			rfName:          "test",
+			rfStandalone:    true,
+			rfRedisReplicas: 3,
+			expectedError:   "standalone mode requires redis.replicas to be 1",
+		},
+		{
+			name:                  "Standalone bootstrapping with allowSentinels populates sentinel defaults",
+			rfName:                "test",
+			rfStandalone:          true,
+			rfBootstrapNode:       &BootstrapSettings{Host: "127.0.0.1", AllowSentinels: true},
+			expectedBootstrapNode: &BootstrapSettings{Host: "127.0.0.1", Port: "6379", AllowSentinels: true},
+		},
 	}
 
 	for _, test := range tests {
@@ -86,6 +114,8 @@ func TestValidate(t *testing.T) {
 			rf.Spec.Engine = test.rfEngine
 			rf.Spec.Redis.CustomConfig = test.rfRedisCustomConfig
 			rf.Spec.Sentinel.CustomConfig = test.rfSentinelCustomConfig
+			rf.Spec.Standalone = test.rfStandalone
+			rf.Spec.Redis.Replicas = test.rfRedisReplicas
 
 			err := rf.Validate()
 
@@ -113,16 +143,29 @@ func TestValidate(t *testing.T) {
 					expectedSentinelCustomConfig = test.rfSentinelCustomConfig
 				}
 
+				expectedRedisReplicas := int32(defaultRedisNumber)
+				expectedSentinelReplicas := int32(defaultSentinelNumber)
+				if test.rfStandalone {
+					expectedRedisReplicas = 1
+					expectedSentinelReplicas = 0
+					// A standalone pod still bootstrapping from an external host with
+					// allowSentinels is the one exception: same as SentinelsAllowed().
+					if test.rfBootstrapNode != nil && test.rfBootstrapNode.AllowSentinels {
+						expectedSentinelReplicas = int32(defaultSentinelNumber)
+					}
+				}
+
 				expectedRF := &RedisFailover{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      test.rfName,
 						Namespace: "namespace",
 					},
 					Spec: RedisFailoverSpec{
-						Engine: test.rfEngine,
+						Engine:     test.rfEngine,
+						Standalone: test.rfStandalone,
 						Redis: RedisSettings{
 							Image:                    defaultImg,
-							Replicas:                 defaultRedisNumber,
+							Replicas:                 expectedRedisReplicas,
 							Port:                     defaultRedisPort,
 							ReservedPodMemoryPercent: defaultReservedPodMemoryPercent,
 							Exporter: Exporter{
@@ -132,7 +175,7 @@ func TestValidate(t *testing.T) {
 						},
 						Sentinel: SentinelSettings{
 							Image:        defaultImg,
-							Replicas:     defaultSentinelNumber,
+							Replicas:     expectedSentinelReplicas,
 							CustomConfig: expectedSentinelCustomConfig,
 							Exporter: Exporter{
 								Image: defaultSentinelExporterImage,

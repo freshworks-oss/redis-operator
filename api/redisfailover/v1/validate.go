@@ -40,6 +40,17 @@ func (r *RedisFailover) Validate() error {
 		r.Spec.Redis.CustomConfig = deduplicateStr(append(defaultRedisCustomConfig, r.Spec.Redis.CustomConfig...))
 	}
 
+	if r.Spec.Standalone {
+		// bootstrapNode is allowed alongside standalone: the single pod replicates
+		// from bootstrapNode.Host until the user removes bootstrapNode from the spec,
+		// at which point checkAndHealStandaloneMode promotes it via the existing
+		// zero-masters/SetOldestAsMaster path. See CheckAndHeal in checker.go.
+		if r.Spec.Redis.Replicas != 0 && r.Spec.Redis.Replicas != 1 {
+			return errors.New("standalone mode requires redis.replicas to be 1 (or omitted)")
+		}
+		r.Spec.Redis.Replicas = 1
+	}
+
 	if r.Spec.Redis.Image == "" {
 		r.Spec.Redis.Image = defaultImageForEngine
 	}
@@ -60,7 +71,10 @@ func (r *RedisFailover) Validate() error {
 		r.Spec.Redis.ReservedPodMemoryPercent = defaultReservedPodMemoryPercent
 	}
 
-	if r.Spec.Sentinel.Replicas <= 0 {
+	// Standalone normally has no Sentinel at all, so this stays 0 unless a
+	// standalone pod is still bootstrapping from an external host with
+	// allowSentinels — same condition as SentinelsAllowed().
+	if r.Spec.Sentinel.Replicas <= 0 && (!r.Spec.Standalone || r.SentinelsAllowed()) {
 		r.Spec.Sentinel.Replicas = defaultSentinelNumber
 	}
 

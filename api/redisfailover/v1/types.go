@@ -41,6 +41,20 @@ type RedisFailoverSpec struct {
 	Auth           AuthSettings       `json:"auth,omitempty"`
 	LabelWhitelist []string           `json:"labelWhitelist,omitempty"`
 	BootstrapNode  *BootstrapSettings `json:"bootstrapNode,omitempty"`
+	// Standalone runs a single self-contained Redis instance with no Sentinel deployed at
+	// all. Forces redis.replicas to 1 and sentinel.replicas to 0. This differs from a
+	// plain replicas:1 CR, which still requires Sentinel. Unlike the Sentinel-backed
+	// topology, the generated redis.conf sets no save directive, leaving Redis on its
+	// own compiled-in persistence default; use redis.customConfig to pick RDB save
+	// points or AOF explicitly.
+	//
+	// BootstrapNode may be set alongside Standalone to seed the pod from an external
+	// host: it replicates from BootstrapNode.Host until BootstrapNode is removed from
+	// the spec, at which point the operator promotes it in place (a plain replica
+	// detach, no data loss) and it behaves as a normal standalone instance from then
+	// on. There is no automatic cutover — removing BootstrapNode is what triggers it.
+	// +optional
+	Standalone bool `json:"standalone,omitempty"`
 }
 
 // RedisCommandRename defines the specification of a "rename-command" configuration option

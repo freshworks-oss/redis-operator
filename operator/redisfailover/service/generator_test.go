@@ -549,6 +549,232 @@ func TestRedisStatefulSetStorageGeneration(t *testing.T) {
 	}
 }
 
+func TestRedisConfigMapPersistence(t *testing.T) {
+	tests := []struct {
+		name       string
+		standalone bool
+	}{
+		{
+			name:       "sentinel-backed keeps tuned RDB save points",
+			standalone: false,
+		},
+		{
+			name:       "standalone omits save directives, no forced AOF",
+			standalone: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			rf := generateRF()
+			rf.Spec.Standalone = test.standalone
+
+			var generatedConfigMap corev1.ConfigMap
+
+			ms := &mK8SService.Services{}
+			ms.On("CreateOrUpdateConfigMap", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+				cm := args.Get(1).(*corev1.ConfigMap)
+				generatedConfigMap = *cm
+			}).Return(nil)
+
+			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+			err := client.EnsureRedisConfigMap(rf, nil, nil)
+			assert.NoError(err)
+
+			content := generatedConfigMap.Data["redis.conf"]
+			assert.NotContains(content, "appendonly yes")
+			if test.standalone {
+				assert.NotContains(content, "save 900 1")
+				assert.NotContains(content, "save 300 10")
+				assert.NotContains(content, `save ""`)
+			} else {
+				assert.Contains(content, "save 900 1")
+				assert.Contains(content, "save 300 10")
+			}
+		})
+	}
+}
+
+func TestRedisReadinessConfigMapStandalone(t *testing.T) {
+	// Standalone has no slave role and no in-sync/master-lag concepts to check — it's
+	// either promoted to master or it isn't.
+	assert := assert.New(t)
+
+	rf := generateRF()
+	rf.Spec.Standalone = true
+
+	var generatedConfigMap corev1.ConfigMap
+
+	ms := &mK8SService.Services{}
+	ms.On("CreateOrUpdateConfigMap", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		cm := args.Get(1).(*corev1.ConfigMap)
+		generatedConfigMap = *cm
+	}).Return(nil)
+
+	client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+	err := client.EnsureRedisReadinessConfigMap(rf, nil, nil)
+	assert.NoError(err)
+
+	content := generatedConfigMap.Data["ready.sh"]
+	assert.Contains(content, `ROLE_MASTER="role:master"`)
+	assert.NotContains(content, "ROLE_SLAVE")
+	assert.NotContains(content, "IN_SYNC")
+	assert.NotContains(content, "NO_MASTER")
+	assert.NotContains(content, "check_slave")
+}
+
+func TestRedisReadinessConfigMapStandaloneBootstrapping(t *testing.T) {
+	// A standalone pod still seeding from bootstrapNode is legitimately role:slave —
+	// readiness must accept a healthy, caught-up slave, not master-only, or it would
+	// never pass for as long as bootstrapNode stays set.
+	assert := assert.New(t)
+
+	rf := generateRF()
+	rf.Spec.Standalone = true
+	rf.Spec.BootstrapNode = &redisfailoverv1.BootstrapSettings{Host: "10.0.0.1", Port: "6379"}
+
+	var generatedConfigMap corev1.ConfigMap
+
+	ms := &mK8SService.Services{}
+	ms.On("CreateOrUpdateConfigMap", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		cm := args.Get(1).(*corev1.ConfigMap)
+		generatedConfigMap = *cm
+	}).Return(nil)
+
+	client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+	err := client.EnsureRedisReadinessConfigMap(rf, nil, nil)
+	assert.NoError(err)
+
+	content := generatedConfigMap.Data["ready.sh"]
+	assert.Contains(content, `ROLE_SLAVE="role:slave"`)
+	assert.Contains(content, "check_slave")
+	assert.Contains(content, `IN_SYNC="master_sync_in_progress:1"`)
+	assert.Contains(content, `NO_MASTER="master_host:127.0.0.1"`)
+}
+
+func TestRedisStatefulSetStandaloneHasNoShutdownScript(t *testing.T) {
+	// Standalone has no Sentinel to fail over to, and Redis's own default save points
+	// already trigger a save on SIGTERM, so there is no shutdown ConfigMap, no volume
+	// mount for it, and no PreStop hook at all.
+	assert := assert.New(t)
+
+	rf := generateRF()
+	rf.Spec.Standalone = true
+
+	var generatedStatefulSet appsv1.StatefulSet
+
+	ms := &mK8SService.Services{}
+	ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, errors.NewNotFound(schema.GroupResource{}, ""))
+	ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Run(func(args mock.Arguments) {
+		ss := args.Get(1).(*appsv1.StatefulSet)
+		generatedStatefulSet = *ss
+	}).Return(nil)
+
+	client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+	err := client.EnsureRedisStatefulset(rf, nil, nil)
+	assert.NoError(err)
+
+	container := generatedStatefulSet.Spec.Template.Spec.Containers[0]
+	assert.Nil(container.Lifecycle)
+	for _, vm := range container.VolumeMounts {
+		assert.NotEqual("redis-shutdown-config", vm.Name)
+	}
+	for _, v := range generatedStatefulSet.Spec.Template.Spec.Volumes {
+		assert.NotEqual("redis-shutdown-config", v.Name)
+	}
+}
+
+func TestRedisStatefulSetPodDisruptionBudget(t *testing.T) {
+	tests := []struct {
+		name       string
+		standalone bool
+		expectPDB  bool
+	}{
+		{
+			name:       "default replicas creates a PDB",
+			standalone: false,
+			expectPDB:  true,
+		},
+		{
+			name:       "standalone (single replica, no failover partner) skips the PDB",
+			standalone: true,
+			expectPDB:  false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			rf := generateRF()
+			rf.Spec.Standalone = test.standalone
+
+			ms := &mK8SService.Services{}
+			ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, errors.NewNotFound(schema.GroupResource{}, ""))
+			ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Return(nil)
+			if test.expectPDB {
+				ms.On("CreateOrUpdatePodDisruptionBudget", namespace, mock.Anything).Once().Return(nil, nil)
+			}
+
+			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+			err := client.EnsureRedisStatefulset(rf, nil, nil)
+
+			assert.NoError(err)
+			ms.AssertExpectations(t)
+			if !test.expectPDB {
+				ms.AssertNotCalled(t, "CreateOrUpdatePodDisruptionBudget", mock.Anything, mock.Anything)
+			}
+		})
+	}
+}
+
+func TestEnsureNotPresentRedisSlaveService(t *testing.T) {
+	tests := []struct {
+		name           string
+		serviceExists  bool
+		expectedDelete bool
+	}{
+		{
+			name:           "slave service exists, gets deleted",
+			serviceExists:  true,
+			expectedDelete: true,
+		},
+		{
+			name:           "slave service already absent, no-op",
+			serviceExists:  false,
+			expectedDelete: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+
+			rf := generateRF()
+			slaveName := rfservice.GetRedisSlaveName(rf)
+
+			ms := &mK8SService.Services{}
+			if test.serviceExists {
+				ms.On("GetService", namespace, slaveName).Once().Return(&corev1.Service{}, nil)
+				ms.On("DeleteService", namespace, slaveName).Once().Return(nil)
+			} else {
+				ms.On("GetService", namespace, slaveName).Once().Return(nil, errors.NewNotFound(schema.GroupResource{}, slaveName))
+			}
+
+			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+			err := client.EnsureNotPresentRedisSlaveService(rf)
+
+			assert.NoError(err)
+			ms.AssertExpectations(t)
+			if !test.expectedDelete {
+				ms.AssertNotCalled(t, "DeleteService", mock.Anything, mock.Anything)
+			}
+		})
+	}
+}
+
 func TestRedisStatefulSetCommands(t *testing.T) {
 	tests := []struct {
 		name             string
