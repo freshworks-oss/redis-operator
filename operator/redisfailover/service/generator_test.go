@@ -2853,7 +2853,7 @@ func TestDisableMyMaster(t *testing.T) {
 			},
 			expectedRedisShutdownSHScriptConfigMap: &corev1.ConfigMap{
 				Data: map[string]string{
-					"shutdown.sh": "master=$(redis-cli -h ${RFS_TEST_SERVICE_HOST} -p ${RFS_TEST_SERVICE_PORT_SENTINEL} --csv SENTINEL get-master-addr-by-name mymaster | tr ',' ' ' | tr -d '\\\"' |cut -d' ' -f1)\nif [ \"$master\" = \"$(hostname -i)\" ]; then\nredis-cli -h ${RFS_TEST_SERVICE_HOST} -p ${RFS_TEST_SERVICE_PORT_SENTINEL} SENTINEL failover mymaster\nsleep 31\nfi\ncmd=\"redis-cli -p 0\"\nif [ ! -z \"${REDIS_PASSWORD}\" ]; then\n\texport REDISCLI_AUTH=${REDIS_PASSWORD}\nfi\nsave_command=\"${cmd} save\"\neval $save_command",
+					"shutdown.sh": "master=$(redis-cli -h ${RFS_TEST_SERVICE_HOST} -p ${RFS_TEST_SERVICE_PORT_SENTINEL} --csv SENTINEL get-master-addr-by-name mymaster | tr ',' ' ' | tr -d '\\\"' |cut -d' ' -f1)\nif [ \"$master\" = \"$(hostname -i)\" ]; then\nredis-cli -h ${RFS_TEST_SERVICE_HOST} -p ${RFS_TEST_SERVICE_PORT_SENTINEL} SENTINEL failover mymaster\nsleep 31\nfi\ncmd=\"redis-cli -p 0\"\nif [ ! -z \"${REDIS_PASSWORD}\" ]; then\n\texport REDISCLI_AUTH=${REDIS_PASSWORD}\n\texport VALKEYCLI_AUTH=${REDIS_PASSWORD}\nfi\nsave_command=\"${cmd} save\"\neval $save_command",
 				},
 			},
 		},
@@ -2880,7 +2880,7 @@ func TestDisableMyMaster(t *testing.T) {
 			},
 			expectedRedisShutdownSHScriptConfigMap: &corev1.ConfigMap{
 				Data: map[string]string{
-					"shutdown.sh": "master=$(redis-cli -h ${RFS_TEST_SERVICE_HOST} -p ${RFS_TEST_SERVICE_PORT_SENTINEL} --csv SENTINEL get-master-addr-by-name test | tr ',' ' ' | tr -d '\\\"' |cut -d' ' -f1)\nif [ \"$master\" = \"$(hostname -i)\" ]; then\nredis-cli -h ${RFS_TEST_SERVICE_HOST} -p ${RFS_TEST_SERVICE_PORT_SENTINEL} SENTINEL failover test\nsleep 31\nfi\ncmd=\"redis-cli -p 0\"\nif [ ! -z \"${REDIS_PASSWORD}\" ]; then\n\texport REDISCLI_AUTH=${REDIS_PASSWORD}\nfi\nsave_command=\"${cmd} save\"\neval $save_command",
+					"shutdown.sh": "master=$(redis-cli -h ${RFS_TEST_SERVICE_HOST} -p ${RFS_TEST_SERVICE_PORT_SENTINEL} --csv SENTINEL get-master-addr-by-name test | tr ',' ' ' | tr -d '\\\"' |cut -d' ' -f1)\nif [ \"$master\" = \"$(hostname -i)\" ]; then\nredis-cli -h ${RFS_TEST_SERVICE_HOST} -p ${RFS_TEST_SERVICE_PORT_SENTINEL} SENTINEL failover test\nsleep 31\nfi\ncmd=\"redis-cli -p 0\"\nif [ ! -z \"${REDIS_PASSWORD}\" ]; then\n\texport REDISCLI_AUTH=${REDIS_PASSWORD}\n\texport VALKEYCLI_AUTH=${REDIS_PASSWORD}\nfi\nsave_command=\"${cmd} save\"\neval $save_command",
 				},
 			},
 		},

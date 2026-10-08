@@ -250,6 +250,13 @@ func generateRedisConfigMap(rf *redisfailoverv1.RedisFailover, labels map[string
 	}
 }
 
+// cliAuthExports sets both auth variables because which one the CLI reads
+// depends on its version: redis-cli and valkey-cli before 9.0 read only
+// REDISCLI_AUTH, valkey-cli 9.0+ prefers VALKEYCLI_AUTH. Each CLI ignores the
+// variable it does not know.
+const cliAuthExports = `	export REDISCLI_AUTH=${REDIS_PASSWORD}
+	export VALKEYCLI_AUTH=${REDIS_PASSWORD}`
+
 func generateRedisShutdownConfigMap(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) *corev1.ConfigMap {
 	name := GetRedisShutdownConfigMapName(rf)
 	port := rf.Spec.Redis.Port
@@ -259,7 +266,6 @@ func generateRedisShutdownConfigMap(rf *redisfailoverv1.RedisFailover, labels ma
 	labels = util.MergeLabels(labels, generateSelectorLabels(redisRoleName, rf.Name))
 	eng := EngineFor(rf)
 	cli := eng.CLIBinary()
-	authEnv := eng.CLIAuthEnvName()
 	shutdownContent := fmt.Sprintf(`master=$(%[4]s -h ${RFS_%[1]v_SERVICE_HOST} -p ${RFS_%[1]v_SERVICE_PORT_SENTINEL} --csv SENTINEL get-master-addr-by-name %[3]v | tr ',' ' ' | tr -d '\"' |cut -d' ' -f1)
 if [ "$master" = "$(hostname -i)" ]; then
 %[4]s -h ${RFS_%[1]v_SERVICE_HOST} -p ${RFS_%[1]v_SERVICE_PORT_SENTINEL} SENTINEL failover %[3]v
@@ -267,10 +273,10 @@ sleep 31
 fi
 cmd="%[4]s -p %[2]v"
 if [ ! -z "${REDIS_PASSWORD}" ]; then
-	export %[5]s=${REDIS_PASSWORD}
+%[5]s
 fi
 save_command="${cmd} save"
-eval $save_command`, rfName, port, rf.MasterName(), cli, authEnv)
+eval $save_command`, rfName, port, rf.MasterName(), cli, cliAuthExports)
 
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
@@ -293,7 +299,6 @@ func generateRedisReadinessConfigMap(rf *redisfailoverv1.RedisFailover, labels m
 	labels = util.MergeLabels(labels, generateSelectorLabels(redisRoleName, rf.Name))
 	eng := EngineFor(rf)
 	cli := eng.CLIBinary()
-	authEnv := eng.CLIAuthEnvName()
 	readinessContent := fmt.Sprintf(`ROLE="role"
 ROLE_MASTER="role:master"
 ROLE_SLAVE="role:slave"
@@ -302,7 +307,7 @@ NO_MASTER="master_host:127.0.0.1"
 
 cmd="%[2]s -p %[1]v"
 if [ ! -z "${REDIS_PASSWORD}" ]; then
-	export %[3]s=${REDIS_PASSWORD}
+%[3]s
 fi
 
 cmd="${cmd} info replication"
@@ -333,7 +338,7 @@ case $role in
 		*)
 				echo "unexpected"
 				exit 1
-esac`, port, cli, authEnv)
+esac`, port, cli, cliAuthExports)
 
 	return &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{

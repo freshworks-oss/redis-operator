@@ -15,11 +15,10 @@ func TestEngineFor(t *testing.T) {
 		engine redisfailoverv1.DatabaseEngine
 		server string
 		cli    string
-		auth   string
 	}{
-		{"omitted is redis", "", "redis-server", "redis-cli", "REDISCLI_AUTH"},
-		{"redis", redisfailoverv1.RedisEngine, "redis-server", "redis-cli", "REDISCLI_AUTH"},
-		{"valkey", redisfailoverv1.ValkeyEngine, "valkey-server", "valkey-cli", "VALKEYCLI_AUTH"},
+		{"omitted is redis", "", "redis-server", "redis-cli"},
+		{"redis", redisfailoverv1.RedisEngine, "redis-server", "redis-cli"},
+		{"valkey", redisfailoverv1.ValkeyEngine, "valkey-server", "valkey-cli"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -33,7 +32,6 @@ func TestEngineFor(t *testing.T) {
 			eng := EngineFor(rf)
 			assert.Equal(t, tc.server, eng.ServerBinary())
 			assert.Equal(t, tc.cli, eng.CLIBinary())
-			assert.Equal(t, tc.auth, eng.CLIAuthEnvName())
 		})
 	}
 }
