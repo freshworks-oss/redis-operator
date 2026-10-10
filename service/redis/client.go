@@ -28,6 +28,7 @@ type Client interface {
 	MakeSlaveOfWithPort(ip, masterIP, masterPort, password string) error
 	GetSentinelMonitor(ip, masterName string) (string, string, error)
 	SetCustomSentinelConfig(ip, masterName string, configs []string) error
+	SetSentinelAuthPass(ip, masterName, password string) error
 	SetCustomRedisConfig(ip string, port string, configs []string, password string) error
 	SlaveIsReady(ip, port, password string) (bool, error)
 	SentinelCheckQuorum(ip, masterName string) error
@@ -325,6 +326,25 @@ func (c *client) SetCustomSentinelConfig(ip, masterName string, configs []string
 			return err
 		}
 	}
+	return nil
+}
+
+// SetSentinelAuthPass sets the password the Sentinel authenticates with to
+// the master it monitors and to that master's replicas.
+func (c *client) SetSentinelAuthPass(ip, masterName, password string) error {
+	options := &rediscli.Options{
+		Addr:     net.JoinHostPort(ip, sentinelPort),
+		Password: "",
+		DB:       0,
+	}
+	rClient := rediscli.NewClient(options)
+	defer func() { _ = rClient.Close() }()
+	cmd := rediscli.NewStatusCmd(context.TODO(), "SENTINEL", "SET", masterName, "auth-pass", password)
+	if err := rClient.Process(context.TODO(), cmd); err != nil {
+		c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.APPLY_SENTINEL_CONFIG, metrics.FAIL, getRedisError(err))
+		return err
+	}
+	c.metricsRecorder.RecordRedisOperation(metrics.KIND_SENTINEL, ip, metrics.APPLY_SENTINEL_CONFIG, metrics.SUCCESS, metrics.NOT_APPLICABLE)
 	return nil
 }
 

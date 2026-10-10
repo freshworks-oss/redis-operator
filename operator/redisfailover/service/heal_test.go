@@ -454,3 +454,79 @@ func TestNewSentinelMonitorWithPort(t *testing.T) {
 		})
 	}
 }
+
+func TestRestoreSentinel(t *testing.T) {
+	tests := []struct {
+		name          string
+		authSecret    string
+		resetErr      error
+		secretErr     error
+		authPassErr   error
+		wantAuthPass  bool
+		errorExpected bool
+	}{
+		{
+			name: "auth disabled: reset only",
+		},
+		{
+			name:         "auth enabled: reset, then re-send auth-pass",
+			authSecret:   "redis-auth",
+			wantAuthPass: true,
+		},
+		{
+			name:          "reset fails: auth-pass is not sent",
+			authSecret:    "redis-auth",
+			resetErr:      errors.New("reset failed"),
+			errorExpected: true,
+		},
+		{
+			name:          "password secret unreadable",
+			authSecret:    "redis-auth",
+			secretErr:     errors.New("secret not found"),
+			errorExpected: true,
+		},
+		{
+			name:          "auth-pass fails",
+			authSecret:    "redis-auth",
+			authPassErr:   errors.New("set failed"),
+			wantAuthPass:  true,
+			errorExpected: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert := assert.New(t)
+			rf := generateRF()
+			rf.Spec.Auth.SecretPath = test.authSecret
+			ms := &mK8SService.Services{}
+			mr := &mRedisService.Client{}
+
+			mr.On("ResetSentinel", "0.0.0.0").Once().Return(test.resetErr)
+			if test.resetErr == nil && test.authSecret != "" {
+				secret := &corev1.Secret{Data: map[string][]byte{"password": []byte("s3cret")}}
+				if test.secretErr != nil {
+					secret = nil
+				}
+				ms.On("GetSecret", rf.Namespace, test.authSecret).Once().Return(secret, test.secretErr)
+			}
+			if test.wantAuthPass {
+				mr.On("SetSentinelAuthPass", "0.0.0.0", "mymaster", "s3cret").Once().Return(test.authPassErr)
+			}
+
+			healer := rfservice.NewRedisFailoverHealer(ms, mr, log.DummyLogger{})
+			err := healer.RestoreSentinel("0.0.0.0", rf)
+
+			if test.errorExpected {
+				assert.Error(err)
+			} else {
+				assert.NoError(err)
+			}
+			ms.AssertExpectations(t)
+			mr.AssertExpectations(t)
+			if !test.wantAuthPass {
+				mr.AssertNotCalled(t, "SetSentinelAuthPass", mock.Anything, mock.Anything, mock.Anything)
+			}
+		})
+	}
+}

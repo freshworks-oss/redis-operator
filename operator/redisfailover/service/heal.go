@@ -22,7 +22,7 @@ type RedisFailoverHeal interface {
 	SetExternalMasterOnAll(masterIP string, masterPort string, rFailover *redisfailoverv1.RedisFailover) error
 	NewSentinelMonitor(ip string, monitor string, rFailover *redisfailoverv1.RedisFailover) error
 	NewSentinelMonitorWithPort(ip string, monitor string, port string, rFailover *redisfailoverv1.RedisFailover) error
-	RestoreSentinel(ip string) error
+	RestoreSentinel(ip string, rFailover *redisfailoverv1.RedisFailover) error
 	SetSentinelCustomConfig(ip string, rFailover *redisfailoverv1.RedisFailover) error
 	SetRedisCustomConfig(ip string, rFailover *redisfailoverv1.RedisFailover) error
 	DeletePod(podName string, rFailover *redisfailoverv1.RedisFailover) error
@@ -295,9 +295,27 @@ func (r *RedisFailoverHealer) NewSentinelMonitorWithPort(ip string, monitor stri
 }
 
 // RestoreSentinel clear the number of sentinels on memory
-func (r *RedisFailoverHealer) RestoreSentinel(ip string) error {
+func (r *RedisFailoverHealer) RestoreSentinel(ip string, rf *redisfailoverv1.RedisFailover) error {
 	r.logger.Debugf("Restoring sentinel %s", ip)
-	return r.redisClient.ResetSentinel(ip)
+	if err := r.redisClient.ResetSentinel(ip); err != nil {
+		return err
+	}
+
+	// SENTINEL RESET keeps the auth-pass the Sentinel already has, and
+	// NewSentinelMonitor, the only other place that sets it, runs only when
+	// the Sentinel monitors the wrong address. A Sentinel restarted with the
+	// initial config can take the current master address from a peer's hello
+	// message, so it monitors the right address without a password, gets
+	// NOAUTH from the master and keeps reporting it as down: the reset alone
+	// would then repeat on every check without converging.
+	password, err := k8s.GetRedisPassword(r.k8sService, rf)
+	if err != nil {
+		return err
+	}
+	if password == "" {
+		return nil
+	}
+	return r.redisClient.SetSentinelAuthPass(ip, rf.MasterName(), password)
 }
 
 // SetSentinelCustomConfig will call sentinel to set the configuration given in config

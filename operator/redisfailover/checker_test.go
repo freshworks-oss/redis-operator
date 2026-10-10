@@ -654,13 +654,13 @@ func TestCheckAndHeal(t *testing.T) {
 					mrfc.On("CheckSentinelNumberInMemory", sentinel, rf).Once().Return(nil)
 				} else {
 					mrfc.On("CheckSentinelNumberInMemory", sentinel, rf).Once().Return(errors.New(""))
-					mrfh.On("RestoreSentinel", sentinel).Once().Return(nil)
+					mrfh.On("RestoreSentinel", sentinel, rf).Once().Return(nil)
 				}
 				if test.sentinelSlavesNumberInMemoryOK {
 					mrfc.On("CheckSentinelSlavesNumberInMemory", sentinel, rf).Once().Return(nil)
 				} else {
 					mrfc.On("CheckSentinelSlavesNumberInMemory", sentinel, rf).Once().Return(errors.New(""))
-					mrfh.On("RestoreSentinel", sentinel).Once().Return(nil)
+					mrfh.On("RestoreSentinel", sentinel, rf).Once().Return(nil)
 				}
 				mrfh.On("SetSentinelCustomConfig", sentinel, rf).Once().Return(nil)
 			}
