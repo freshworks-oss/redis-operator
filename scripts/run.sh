@@ -1,3 +1,3 @@
 #!/bin/sh
 
-./scripts/build.sh && ./bin/linux/redis-operator --kubeconfig=/.kube/config
+./scripts/build.sh && ./bin/redis-operator --kubeconfig=/.kube/config
