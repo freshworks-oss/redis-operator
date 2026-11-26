@@ -8,10 +8,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	redisfailoverv1 "github.com/freshworks/redis-operator/api/redisfailover/v1"
@@ -2924,5 +2926,56 @@ func TestDisableMyMaster(t *testing.T) {
 		err = client.EnsureRedisShutdownConfigMap(rf, nil, []metav1.OwnerReference{})
 		assert.NoError(err)
 		assert.Equal(test.expectedRedisShutdownSHScriptConfigMap.Data, generatedRedisConfigMap.Data)
+	}
+}
+
+func TestDisabledPodDisruptionBudgetIsDeleted(t *testing.T) {
+	notFound := errors.NewNotFound(schema.GroupResource{}, "")
+	isController := true
+	pdbOwnedBy := func(uid string) *policyv1.PodDisruptionBudget {
+		return &policyv1.PodDisruptionBudget{ObjectMeta: metav1.ObjectMeta{
+			OwnerReferences: []metav1.OwnerReference{{UID: types.UID(uid), Controller: &isController}},
+		}}
+	}
+	tests := []struct {
+		name       string
+		stored     *policyv1.PodDisruptionBudget
+		getErr     error
+		wantDelete bool
+		deleteErr  error
+	}{
+		{name: "owned PDB is deleted", stored: pdbOwnedBy("rf-uid"), wantDelete: true},
+		{name: "PDB without an owner is kept", stored: &policyv1.PodDisruptionBudget{}},
+		{name: "PDB with a foreign owner is kept", stored: pdbOwnedBy("other-uid")},
+		{name: "absent PDB is not deleted", getErr: notFound},
+		{name: "PDB gone before the delete is not an error", stored: pdbOwnedBy("rf-uid"), wantDelete: true, deleteErr: notFound},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rf := generateRF()
+			rf.UID = "rf-uid"
+			rf.Spec.Sentinel.DisablePodDisruptionBudget = true
+			rf.Spec.Redis.DisablePodDisruptionBudget = true
+
+			ms := &mK8SService.Services{}
+			for _, pdbName := range []string{sentinelName, redisName} {
+				ms.On("GetPodDisruptionBudget", namespace, pdbName).Once().Return(test.stored, test.getErr)
+				if test.wantDelete {
+					ms.On("DeletePodDisruptionBudget", namespace, pdbName).Once().Return(test.deleteErr)
+				}
+			}
+			ms.On("GetStatefulSet", namespace, mock.Anything).Once().Return(nil, notFound)
+			ms.On("CreateOrUpdateDeployment", namespace, mock.Anything).Once().Return(nil)
+			ms.On("CreateOrUpdateStatefulSet", namespace, mock.Anything).Once().Return(nil)
+
+			client := rfservice.NewRedisFailoverKubeClient(ms, log.Dummy, metrics.Dummy)
+			assert.NoError(t, client.EnsureSentinelDeployment(rf, nil, []metav1.OwnerReference{}))
+			assert.NoError(t, client.EnsureRedisStatefulset(rf, nil, []metav1.OwnerReference{}))
+			ms.AssertExpectations(t)
+			if !test.wantDelete {
+				ms.AssertNotCalled(t, "DeletePodDisruptionBudget", mock.Anything, mock.Anything)
+			}
+		})
 	}
 }

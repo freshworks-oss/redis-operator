@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
@@ -100,10 +101,12 @@ func (r *RedisFailoverKubeClient) EnsureSentinelConfigMap(rf *redisfailoverv1.Re
 
 // EnsureSentinelDeployment makes sure the sentinel deployment exists in the desired state
 func (r *RedisFailoverKubeClient) EnsureSentinelDeployment(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
-	if !rf.Spec.Sentinel.DisablePodDisruptionBudget {
-		if err := r.ensurePodDisruptionBudget(rf, sentinelName, sentinelRoleName, labels, ownerRefs); err != nil {
+	if rf.Spec.Sentinel.DisablePodDisruptionBudget {
+		if err := r.ensureNotPresentPodDisruptionBudget(rf, sentinelName); err != nil {
 			return err
 		}
+	} else if err := r.ensurePodDisruptionBudget(rf, sentinelName, sentinelRoleName, labels, ownerRefs); err != nil {
+		return err
 	}
 	d := generateSentinelDeployment(rf, labels, ownerRefs)
 	err := r.K8SService.CreateOrUpdateDeployment(rf.Namespace, d)
@@ -114,10 +117,12 @@ func (r *RedisFailoverKubeClient) EnsureSentinelDeployment(rf *redisfailoverv1.R
 
 // EnsureRedisStatefulset makes sure the redis statefulset exists in the desired state
 func (r *RedisFailoverKubeClient) EnsureRedisStatefulset(rf *redisfailoverv1.RedisFailover, labels map[string]string, ownerRefs []metav1.OwnerReference) error {
-	if !rf.Spec.Redis.DisablePodDisruptionBudget {
-		if err := r.ensurePodDisruptionBudget(rf, redisName, redisRoleName, labels, ownerRefs); err != nil {
+	if rf.Spec.Redis.DisablePodDisruptionBudget {
+		if err := r.ensureNotPresentPodDisruptionBudget(rf, redisName); err != nil {
 			return err
 		}
+	} else if err := r.ensurePodDisruptionBudget(rf, redisName, redisRoleName, labels, ownerRefs); err != nil {
+		return err
 	}
 
 	// Check and validate StatefulSet before creation/update
@@ -330,6 +335,29 @@ func (r *RedisFailoverKubeClient) ensurePodDisruptionBudget(rf *redisfailoverv1.
 	pdb := generatePodDisruptionBudget(name, namespace, labels, ownerRefs, minAvailable)
 	err := r.K8SService.CreateOrUpdatePodDisruptionBudget(namespace, pdb)
 	r.setEnsureOperationMetrics(pdb.Namespace, pdb.Name, "PodDisruptionBudget" /* pdb.TypeMeta.Kind isnt working;  pdb.Kind isnt working either */, rf.Name, err)
+	return err
+}
+
+// ensureNotPresentPodDisruptionBudget deletes the PDB a previous reconcile
+// created: its owner reference removes it only with the RedisFailover, so
+// disabling the PDB would otherwise leave the last one in force. A PDB this
+// RedisFailover does not control was not created by the operator and stays.
+func (r *RedisFailoverKubeClient) ensureNotPresentPodDisruptionBudget(rf *redisfailoverv1.RedisFailover, name string) error {
+	name = generateName(name, rf.Name)
+	pdb, err := r.K8SService.GetPodDisruptionBudget(rf.Namespace, name)
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !metav1.IsControlledBy(pdb, rf) {
+		return nil
+	}
+	err = r.K8SService.DeletePodDisruptionBudget(rf.Namespace, name)
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
 	return err
 }
 
